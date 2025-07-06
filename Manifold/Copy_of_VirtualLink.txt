@@ -1,0 +1,128 @@
+classdef VirtualLink<handle
+    % VirtualLink diagram data tables (structural representation for knots and links)
+% Coordinate system: +x → right, +y → up
+    properties
+        CrossingTable
+        ArcTable
+        StrandTable
+        RegionTable
+
+        gaussCode
+        pdCode
+        dtCode
+        virtualGaussCode
+    end
+
+    properties(Constant)
+        CrossingTableVariableNames = {
+            'ID',           % Unique crossing identifier
+            'Type',         % 'Classical' or 'Virtual'
+            'Sign',         % +1/-1 for over/under crossing; NaN if virtual
+            'OverArc',      % ArcID passing over
+            'UnderArcs',    % [ArcID1, ArcID2] passing under (left/right or in/out)
+            'Position',     % [x, y] coordinate of crossing center
+            'Region',       % Coarse region/zone for layout
+            'Label'         % Optional symbolic label
+        }
+
+        ArcTableVariableNames = {
+            'ID',           % Unique arc identifier
+            'FromCrossing', % Source crossing ID (or NaN for free arc)
+            'ToCrossing',   % Target crossing ID (or NaN for free arc)
+            'StrandID',     % Associated strand ID
+            'Segments',     % Nx2 [x, y] coordinates for drawing
+            'IsVirtual',    % true if arc involves only virtual crossings
+            'Label'         % Optional arc label
+        }
+
+        StrandTableVariableNames = {
+            'ID',           % Strand ID (component index)
+            'ArcList',      % Cell array of arc IDs forming the strand
+            'Orientation',  % +1/-1 for orientation along the strand
+            'Color',        % Optional color
+            'Label'         % Optional strand label (e.g., 'L1')
+        }
+
+        RegionTableVariableNames = {
+            'ID',           % Unique region identifier
+            'BoundaryArcs', % List of arc IDs forming the boundary
+            'Label',        % Optional region label
+            'IsOuter',      % true if it is the unbounded face
+            'Zone'          % Coarse position or layout group
+        }
+    end
+
+    methods
+        %% Validation
+        function validateStructure(obj)
+        end
+
+        function isClosed(obj)
+        end
+
+        function hasDanglingArcs(obj)
+        end
+
+        %% Reidemeister Moves
+        function applyReidemeisterI(obj)
+        end
+
+        function applyReidemeisterII(obj)
+        end
+
+        function applyReidemeisterIII(obj)
+        end
+
+        %% Build and Update
+        function buildFromGaussCode(obj)
+        end
+
+        function buildFromPdCode(obj)
+        end
+
+        function updateStrandsFromArcs(obj)
+        end
+
+        function updateRegions(obj)
+        end
+
+        function assignPositions(obj)
+        end
+
+        function interpolateSegments(obj)
+        end
+
+        %% Setter/Getter
+        function obj = set.gaussCode(obj, val)
+            obj.gaussCode = val;
+        end
+
+        function val = get.gaussCode(obj)
+            val = obj.gaussCode;
+        end
+
+        function obj = set.pdCode(obj, val)
+            obj.pdCode = val;
+        end
+
+        function val = get.pdCode(obj)
+            val = obj.pdCode;
+        end
+
+        function obj = set.dtCode(obj, val)
+            obj.dtCode = val;
+        end
+
+        function val = get.dtCode(obj)
+            val = obj.dtCode;
+        end
+
+        function obj = set.virtualGaussCode(obj, val)
+            obj.virtualGaussCode = val;
+        end
+
+        function val = get.virtualGaussCode(obj)
+            val = obj.virtualGaussCode;
+        end
+    end
+end

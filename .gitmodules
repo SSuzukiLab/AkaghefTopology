@@ -1,0 +1,4 @@
+[submodule "SW"]
+	path = SW
+	url = https://github.com/SSuzukiLab/sage-matlab-wrapper.git
+    branch = master
