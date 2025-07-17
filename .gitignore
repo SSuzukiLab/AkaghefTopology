@@ -31,3 +31,7 @@ codegen/
 
 # Cloud based storage dotfile
 .MATLABDriveTag
+
+# original
+.DS_Store
+__pycache__/
