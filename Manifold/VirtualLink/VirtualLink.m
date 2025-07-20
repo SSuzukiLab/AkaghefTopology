@@ -14,6 +14,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
     end
     properties
         formatFlag  =dictionary(["G" "PD" "VG" "VPD"],false(1,4))
+        sageLinked =false
+        virtualFlag (1,1)=true
     end
     properties
         name
@@ -22,14 +24,16 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
     properties
         GaussCode (1,:) cell % cell array of Gauss code for each component
         orientation (1,:) double% +1/-1 for right/left type crossings
+        virtualOrientation (1,:) double % +1/-1 for right/left type real crossings
         PDCode (:,4) double% NV by 4 matrix of PD code
         Ncircle (1,1) double% the number of circle(unknot) components
         DTCode %not supported
         virtualGaussCode (1,:) cell % Gauss code not including virtual crossings
         virtualPDCode (:,4) double % PD code not including virtual crossings
+        cutFlag (1,:) logical  % true if the strand is cut
     end
     properties (Dependent)
-        isVirtual (1,:) double % 1 for virtual crossings, 0 for real crossings
+        isVirtual (1,:) logical % 1 for virtual crossings, 0 for real crossings
         sageName (1,1) string % variable name in Sage
         sageOrientation (1,:) double % orientation in Sage
     end
@@ -69,6 +73,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             'IsOuter',      % true if it is the unbounded face
             'Zone'          % Coarse position or layout group
             }
+        % moveType =["R1","R2","R3","MP","PS","CP","02","CP","H","BMP","B02"]% supported move types
     end
 
     methods
@@ -91,56 +96,149 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 case "mirror"
                     error("mirror move is not implemented yet")
                 case "mirrorMfd"
-                    if obj.formatFlag("G")
+                    flag=obj.formatFlag(["G" "VG"]);
+                    if flag(1)
                         [gc,ori]=obj.getGaussCode;
+                    elseif flag(2)
+                        [gc,ori]=obj.getVirtualGaussCode;
+                    else
+                        error("not implemented")
                     end
                     gc=cellfun(@(x){-x},gc);
                     ori=-ori;
-                    obj.setData(Gauss=gc,orientation=ori);
+                    if flag(1)
+                        obj.setData(Gauss=gc,orientation=ori);
+                    elseif flag(2)
+                        obj.setData(virtualGauss=gc,orientation=ori);
+                    end
                 case "reverse"
                     error("reverse move is not implemented yet")
             end
         end
-        function tbl=movable(obj,type,arg)
+        function tbl=movable(obj,type,argstr,arg)
+            % MOVABLE Get a table of valid moves for the specified type
+            % See `move` for the meaning of arguments and move types.
+            % if the table returned is empty, no valid moves are found.
+            % tbl: table with columns "detail" and "vertex" for the move
             arguments
                 obj
-                type (1,1) string {mustBeMember(type,["R1","R2","R3","MP","CP","02","CP","H","BMP","B02"])}  % move type
+                type (1,1) string {mustBeMember(type,["R1","R2","R3","MP","PS","CP","02","CP","H","BMP","B02"])}  % move type
+                argstr struct =struct.empty;
+                arg.detail (1,1) string="" % detailed move type
                 arg.v (1,:) double =[]% vertex indices for move
                 arg.e (1,:) double =[]% edge indices for move
+                arg.strict (1,1) logical =false % strict mode, fix the order of vertices
+            end
+            if ~isempty(argstr)
+                arg=argstr;
             end
             tbl=table;
+            V=arg.v;
+            strict=arg.strict;
             switch type
                 case "R1"
-                    assert(length(arg.v)==1||length(arg.e)==1)
+                    assert(length(V)==1||length(arg.e)==1)
                 case "R2"
-                    assert(length(arg.v)==2||length(arg.e)==2) % 2 vertices or 1 edge for R2 move
+                    assert(length(V)==2||length(arg.e)==2) % 2 vertices or 1 edge for R2 move
                 case "R3"
-                    assert(length(arg.e)==3||length(arg.v)==3)
-                case "MP" 
-                    assert(any(length(arg.v)==[2,3])) % 2 or 3 vertices for Pachner move
+                    assert(length(arg.e)==3||length(V)==3)
+                case "MP"
+                    assert(any(length(V)==[2,3])) % 2 or 3 vertices for Pachner move
                     V=arg.v;
                     N=length(V);
-                    [gc,ori]=obj.getGaussCode;
+                    [gc,ori]=obj.getVirtualGaussCode;
                     if N==2
                         T=load("MPmoveData.mat").T_MP_L;
                     else
                         T=load("MPmoveData.mat").T_MP_R;
                     end
-                    cur=ori(arg.v);
-                    X=searchMoves(T,gc,V,cur,N,3);
+                    if strlength(arg.detail)>0
+                        T=T(find(T.detail==arg.detail),:);
+                    end
+                    if length(ori)<max(V)
+                        return; % no valid moves if vertex IDs exceed
+                    end
+                    cur=ori(V);
+                    X=searchMoves(T,gc,V,cur);
                     % disp(X)
                     if ~isempty(X)
-                        tbl=X(:,["name","param"]);
+                        tbl=X(:,["detail","vertex"]);%消す必要無い？
                     end
+                    % tbl.Properties.VariableNames=["name","vertex"];
                     % disp(T)
+                case "PS"
+                    % 2 vertices or 2 edge for Pure Sliding move (inverse)
+                    assert(length(V)==2||length(arg.e)==2)
+                    [gc,ori]=obj.getVirtualGaussCode;
+                    if length(V)==2
+                        assert(V(1)~=V(2)&&V(1)*V(2)>0)
+                        [sj,vj]=findC(V(1),gc);
+                        cgc=gc{sj}([end,1:end,1]);
+                        isadj_p=cgc(vj)==V(2)|| cgc(vj+2)==V(2);
+                        [sj,vj]=findC(-V(1),gc);
+                        cgc=gc{sj}([end,1:end,1]);
+                        isadj_n=cgc(vj)==-V(2)|| cgc(vj+2)==-V(2);
+                        if isadj_p&&isadj_n
+                            tbl=table("PS",V,VariableNames=["detail","vertex"]);
+                        end
+                    else
+                        error("PS move is not implemented yet")
+                    end
+                    N=length(V);
+                    load("PSmoveData.mat","T_PS_R");
+                    cur=ori(V);
+                    X=searchMoves(T_PS_R,gc,V,cur);
+                    if ~isempty(X)
+                        tbl=X(:,["detail","vertex"]);
+                    end
                 case "CP"
-                    assert(any(length(arg.v)==[3,5]))
+                    assert(any(length(V)==[3,5]))
                 case "02" % move 0-2
-                    assert(length(arg.v)==2||length(arg.e)==1) % 2 vertices or 1 edge for 0-2 move
+                    assert(length(V)==2||length(arg.e)==1) % 2 vertices or 1 edge for 0-2 move
                 case "H" % handle move
-                    assert(length(arg.v)==1) % 2 vertices or 1 edge for handle move
+                    assert(length(V)==1) % 2 vertices or 1 edge for handle move
+                case "BMP" % Bumping move
+                    assert(length(V)==2||length(V)==1) % 2 vertices for Bumping move
+                    if length(V)==2
+                        assert(V(1)~=V(2))
+                        [gc,ori]=obj.getVirtualGaussCode;
+                        [sj1,vj1]=findC(-abs(V(1)),gc);
+                        [sj2,vj2]=findC(-abs(V(2)),gc);
+                        sgn=ori(V);
+                        if sj1==sj2 && (vj1==vj2+1|| vj1==vj2-1)&& sgn(1)*sgn(2)==-1
+                            % check if the vertices are adjacent
+                            V=V((3-sgn)/2); % V has orientation [1,-1]
+                            tbl=table("",V,VariableNames=["detail","vertex"]);
+                        end
+                    else
+                        error("BMP move is not implemented yet")
+                    end
+                case "B02" % Bumping 0-2 move
+                    assert(length(V)==2)
+                    if length(V)==2
+                        assert(V(1)~=V(2))
+                        [gc,ori]=obj.getVirtualGaussCode;
+                        sgn=ori(V);
+                        if sgn(1)*sgn(2)~=-1 % opposite orientation
+                            return; % no valid moves
+                        elseif sgn(1)==-1
+                            V=V([2,1]); % make sure V(1) is 1
+                        end
+                        % to check if a strand made of -V is included
+                        % if any(cellfun(@(x)isequal(x,-V),gc))
+                        if any(cellfun(@(x)isequal(x,-V)||isequal(x,V),gc))
+                            tbl=table("",V,VariableNames=["detail","vertex"]);
+                            % elseif any(cellfun(@(x)isequal(x,-V([2,1])),gc))
+                        elseif any(cellfun(@(x)isequal(x,-V([2,1]))||isequal(x,V([2,1])),gc))
+                            tbl=table("",V([2,1]),VariableNames=["detail","vertex"]);
+                        end
+                    else
+                        error("B02 move is not implemented yet")
+                    end
                 otherwise
             end
+            % issue: 同一データでも適用位置によって複数解が出てくる可能性を考慮する必要
+            tbl=unique(tbl,'rows');
             function ret=flatGC(gc,n)
                 % Flatten the Gauss code
                 Ns=length(gc);
@@ -149,40 +247,259 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 end
                 ret=[horzcat(gc{:}),zeros(1,n)];
             end
-            function X=searchMoves(T,gc,V,cur,N,L)
-                P=perms(1:N);
-                dic=dictionary([(1:N),-N:-1],1:2*N);
+            function X=searchMoves(T,gc,V,ori_c)
+                % Search the permutations of vertices for all possible moves
+                % dic: dictionary T.gc->gc
+                % X:solution table
+                % ori_c: orientation of vertex used to replace
+                % V: vertex index corresponds to 1:N
+                N_=length(V);
+                
+                dic=dictionary([(1:N_),-N_:-1],1:2*N_);
                 X=table;
-                fgc=flatGC(gc,N-1);
-                for i=1:size(P,1)
-                    idx=find(all(cur(P(i,:))==T.ori,2));
-                    param=V(P(i,:));
-                    dic(1:N)=param;
-                    dic(-1:-1:-N)=-param;
-                    for j=1:size(idx,1)      
-                        startC=arrayfun(@(x){find(x==fgc)},dic(T.gcFirst(idx(j),:)));
-                        gc_r=T.gc(idx(j),:);
-                        Ss=combinations(startC{:});
-                        for k=1:size(Ss,1)
-                            start=Ss{k,:};
-                            flag=false(1,L);
-                            for l=1:L
-                                flag(l)=isequal(dic(gc_r{l}),fgc(start(l):start(l)+length(gc_r{l})-1));
-                            end
-                            if all(flag)
-                                X=[X;[table(param),T(idx(j),:)]];
-                            end
+                if strict
+                    P=1:N_;
+                else
+                    P=perms(1:N_); % consider all permutations of vertices V
+                end
+                for iP=1:size(P,1)
+                    % iP: current permutation index of V
+                    % Tj: move type index with matching orientation
+                    Tj=find(all(ori_c(P(iP,:))==T.ori,2));
+                    vertex=V(P(iP,:));
+                    dic(1:N_)=vertex;
+                    dic(-1:-1:-N_)=-vertex;
+                    for iTj=1:size(Tj,1)
+                        % iTj: current move type index
+                        [sIdx,vIdx]=arrayfun(@(x)findC(x,gc),dic(T.gcFirst(Tj(iTj),:)));
+                        gc_r=T.gc(Tj(iTj),:);
+                        NS=size(T.gc,2);
+                        flag=false(1,NS);
+                        for iS = 1:NS
+                            % Check if the fragment of Gauss code matches the segment
+                            vIdxMod = mod(vIdx(iS) - 1:vIdx(iS) + length(gc_r{iS}) - 2, length(gc{sIdx(iS)})) + 1;
+                            flag(iS) = isequal(dic(gc_r{iS}), gc{sIdx(iS)}(vIdxMod));
+                        end
+                        if all(flag)
+                            % If all fragments match, add to the result
+                            X=[X;[table(vertex),T(Tj(iTj),:)]];
                         end
                     end
                 end
             end
         end
-        function move(obj,type,arg)
+        function move(obj,type,argstr,arg)
+            % MOVE performs a move on the virtual link diagram
+            % arguments:
+            % type: move type, one of ["R1","R2","R3","MP","PS","CP","02","CP","H","BMP","B02"]
+            % argstr: structure with move parameters
+            % arg: move parameters
+            % Move list: 
+            % - R1, R2, R3: Reidemeister moves
+            % - MP: Pachner 2-3 move
+            % - PS: Pure Sliding move
+            % - CP: Combinatorial Pontryagin move
+            % - 02: 0-2 move
+            % - H: H move
+            % - BMP: Bumping MP move
+            % - B02: Bumping 0-2 move
+            % parameters:
+            % arg.v: vertex indices for the move
+            % arg.e: edge indices for the move
+            % arg.detail: detailed move type 
+            % for MP move, specify A1~D4 types of MP moves
+            % for BMP move, specify detail=0 or detail=1 for the orientation of the new circle
             arguments
                 obj
-                type (1,1) string {mustBeMember(type,["R1","R2","R3","MP","CP","02","CP","H"])}  % move type
+                type (1,1) string {mustBeMember(type,["R1","R2","R3","MP","PS","CP","02","CP","H","BMP","B02"])}  % move type
+                argstr struct =struct.empty;
+                arg.detail (1,1) string="" % detailed move type
                 arg.v (1,:) double % vertex indices for move
                 arg.e (1,:) double % edge indices for move
+            end
+            if ~isempty(argstr)
+                arg=argstr;
+            end
+            arg.strict=true;
+            tbl=obj.movable(type,arg);
+            if height(tbl)==0
+                error("No valid moves found.");
+            elseif height(tbl)>1
+                warning("moves may be ambiguous. check the specification");
+            end
+            V=arg.v;
+            switch type
+                case "R1"
+                    error("R1 move is not implemented yet")
+                case "R2"
+                    error("R2 move is not implemented yet")
+                case "R3"
+                    error("R3 move is not implemented yet")
+                case "MP"
+                    N=length(V);
+                    [gc,ori]=obj.getVirtualGaussCode;
+                    load("MPmoveData.mat","T_MP_L","T_MP_R");
+                    if N==2
+                        idx=find(T_MP_L.detail==arg.detail,1);
+                        T0=T_MP_L(idx,:);
+                        T1=T_MP_R(idx,:);
+                    else
+                        idx=find(T_MP_R.detail==arg.detail,1);
+                        T0=T_MP_R(idx,:);
+                        T1=T_MP_L(idx,:);
+                    end
+                    [gc,ori]=convertGaussCode(gc,ori,T0,T1,V);
+                    obj.setData(virtualGauss=gc,orientation=ori);
+
+                case "PS"
+                    if ~isempty(V)
+                        [gc,ori]=obj.getVirtualGaussCode;
+                        idx=double(tbl.detail(1));
+                        load("PSmoveData.mat","T_PS_R");
+                        T0=T_PS_R(idx,:);
+                        load("PSmoveData.mat","T_PS_L");
+                        [gc,ori]=convertGaussCode(gc,ori,T0,T_PS_L,V);
+                        obj.setData(virtualGauss=gc,orientation=ori);
+                    else
+
+                        error("PS move is not implemented yet")
+                    end
+
+
+                case "CP"
+                    error("CP move is not implemented yet")
+                case "02"
+                    error("02 move is not implemented yet")
+                case "H"
+                    error("H move is not implemented yet")
+                case "BMP"
+                    if length(V)==2
+                        if strlength(arg.detail)==0
+                            error("specify the parameter detail=0,or detail=1")
+                        else
+                            orientationOfNewCircle=double(arg.detail);
+                        end
+                        tbl=obj.movable("BMP",v=V);
+                        assert(height(tbl)==1,"No valid BMP move found");
+                        [gc,ori]=obj.getVirtualGaussCode;
+                        s0=double(tbl.detail);
+                        [sj1,vj1]=findC(V(1),gc);
+                        gc{sj1}=gc{sj1}([vj1+1:end,1:vj1-1]);
+                        [sj2,~]=findC(V(2),gc);
+                        [sj0,vj0]=findC(-V(1),gc);
+                        vnew=max([gc{:}])+1;
+                        gc{sj0}(vj0)=-vnew;
+                        vj0=find(gc{sj0}==-V(2),1);
+                        gc{sj0}(vj0)=[];
+                        vj2=find(gc{sj2}==V(2),1);
+                        if orientationOfNewCircle
+                            gc_circle=[V(1:2),vnew];
+                            ori([V,vnew])=[-1,1,1];
+                        else
+                            gc_circle=[V([2,1]),vnew];
+                            ori([V,vnew])=-[-1,1,1];
+                        end
+                        if sj1==sj2 % if the vertices V are in the same strand, split into two strands
+                            gc(length(gc)+(1:2))={[-V(1),gc{sj2}(1:vj2-1)],[-V(2),gc{sj2}(vj2+1:end)]};
+                            gc{sj2}=gc_circle;
+                        else % if the vertices are in different strands, form one strand
+                            gc{sj2}=[-V(2),gc{sj2}([vj2+1:end,1:vj2-1]),-V(1),gc{sj1}];
+                            gc{sj1}=gc_circle;
+                        end
+                        obj.setData(virtualGauss=gc,orientation=ori);
+                    else
+                        error("BMP move inverse is not implemented yet")
+                    end
+                case "B02"
+                    if length(V)~=2
+                        error("B02 move is not implemented yet")
+                    else
+                        assert(all(V>0))
+                        tbl=obj.movable("B02",v=V);
+                        assert(height(tbl)==1,"No valid BMP move found");
+                        [gc,ori]=obj.getVirtualGaussCode;
+                        NV=max(cellfun(@(x)max(x),gc));
+                        dic=dictionary(setdiff(1:NV,V),1:NV-2);
+                        dic(-dic.keys)=-dic.values;
+                        dic(0)=0;
+                        isVpositive=any(cellfun(@(x)isequal(x,V)||isequal(x,V([2,1])),gc));
+                        if isVpositive, V=-V; end
+                        [sj0,~]=findC(-V(1),gc);
+                        [sj2,vj2]=findC(V(2),gc);
+                        gc{sj2}=gc{sj2}([vj2+1:end,1:vj2-1]);
+                        [sj1,vj1]=findC(V(1),gc);
+                        if sj1==sj2 % if the vertices V are in the same strand, split into two strands
+                            gc([sj0,sj1])={gc{sj1}(1:vj1-1),gc{sj1}(vj1+1:end)};
+                        else % if the vertices are in different strands, form one strand
+                            gc{sj0}=[gc{sj2},gc{sj1}([vj1+1:end,1:vj1-1])];
+                            gc([sj1,sj2])=[];
+                        end
+                        gc=cellfun(@(x){dic(x)},gc);
+                        ori(abs(V))=[];
+                        obj.setData(virtualGauss=gc,orientation=ori);
+                    end
+            end
+            function [gc,ori]=convertGaussCode(gc,ori,T0,T1,V)
+                % Convert Gauss code based on the move
+                % T0: original Gauss code data
+                % T1: new Gauss code data
+                % V: vertices involved in the move
+                NV_=max(cellfun(@(x)max(x),gc));
+                if T0.NV<T1.NV
+                    % if the number of vertices increases after the move
+                    V(T0.NV+1:T1.NV)=NV_+(1:T1.NV-T0.NV);
+                    dic2=@(x)x;
+                    ori(V)=T1.ori;
+                elseif T0.NV>T1.NV
+                    vrem=setdiff(1:NV_,V(end-(0:T0.NV-T1.NV-1)));
+                    dic2=dictionary(vrem,1:NV_-(T0.NV-T1.NV));
+                    dic2(-dic2.keys)=-dic2.values;
+                    dic2(0)=0;
+                    ori(V(1:T1.NV))=T1.ori;
+                    ori=ori(vrem);
+                else
+                    dic2=@(x)x;
+                    ori(V)=T0.ori;
+                end
+                dic1=dictionary([1:length(V),-1:-1:-length(V)],[V,-V]);
+                % position of start point of each fragment
+                [sj_,vj_]=arrayfun(@(x)findC(dic1(x),gc),T0.gcFirst);
+
+                for s=1:length(gc)
+                    % s:current component
+                    % update Gauss code for each component
+                    k=find(sj_==s);
+                    if isempty(k)
+                        gc{s}=dic2(gc{s}); % no related crossings in this component
+                        continue; % no related crossings in this component
+                    end
+                    [~,sortidx]=sort(vj_(k));
+                    k=k(sortidx);
+                    % tmp: temporary Gauss code [gc,T1,gc,T1,...,gc] T1 start at vj_(k)
+                    % dic1: dictionary to convert T1.gc to V
+                    % dic2: delete and shift indices of crossings, dic: convert to new indices T1->gc
+                    tmp=gc{s}(1:vj_(k(1))-1);
+                    for i=1:length(k)-1
+                        tmp=[tmp,dic1(T1.gc{k(i)}),gc{s}(vj_(k(i))+length(T0.gc{k(i)}):vj_(k(i+1))-1)];
+                    end
+                    vjend=vj_(k(end))+length(T0.gc{k(end)});
+                    tmp=[tmp,dic1(T1.gc{k(end)}),gc{s}(vjend:end)];
+                    if vjend>length(gc{s})+1
+                        % if at the end of the Gauss code, restart from the beginning
+                        tmp(1:(vjend-length(gc{s})-1))=[];
+                    end
+                    gc{s}=dic2(tmp);
+                end
+                if length(T1.gc)>length(T0.gc)
+                    % if the number of strands increases after the move, add new strands
+                    gc=[gc,cellfun(@(x){dic1(x)},T1.gc(length(T0.gc)+1:end))];
+                elseif length(T1.gc)<length(T0.gc)
+                    % if the number of strands decreases after the move, remove strands
+                    sj_remove=sj_(length(T1.gc)+1:end);
+                    % strand to remove must be empty
+                    assert(all(cellfun(@(x)isempty(x),gc(sj_remove))))
+                    gc(sj_remove)=[]; % remove empty strands
+                end
             end
         end
 
@@ -214,9 +531,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             end
         end
     end
-%% fundamental calculations
+    %% fundamental calculations
     methods
-        
+
         function buildFromGaussCode(obj)
         end
 
@@ -246,14 +563,17 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         end
         function set.sageOrientation(obj,arg)
             % Set orientation from Sage format
-            obj.orientation(obj.isVirtual)=arg(obj.isVirtual);
+            jreal=~obj.isVirtual;
+            obj.orientation(jreal)=arg(jreal);
         end
         function obj=VirtualLink()
             obj.formatFlag=obj.formatFlag0;
 
         end
         function delete(obj)
-            SageWrapper.H.exec(sprintf("del %s",obj.sageName));
+            if obj.sageLinked
+                SageWrapper.H.exec(sprintf("del %s",obj.sageName));
+            end
         end
 
         function setSageLink(obj)
@@ -272,9 +592,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 error('Invalid format flag. Please check the input data.');
             end
             SW.exec(sprintf("%s=Link(%s)",Pname,data));
+            obj.sageLinked=true;
         end
     end
-    %% graphics 
+    %% graphics
     methods
         function [PE,V,E]=calcPositions(obj,gap)
             if nargin < 2
@@ -405,6 +726,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
 
         end
         function [C3,P,Cr,C4]=assignPositions2(obj,gap)
+            % legacy code
             if nargin < 2
                 gap = 0.1;
             end
@@ -448,14 +770,40 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 orientation=double(SW.exec(sprintf("%s.orientation()",obj.sageName)));
                 obj.GaussCode=GaussCode;
                 obj.orientation=orientation;
-                obj.formatFlag.("G")=true;
+                obj.formatFlag("G")=true;
+            end
+            if ~isempty(obj.cutFlag)
+                % If there are cut edges, append 0 to the end of each Gauss code
+                GaussCode(obj.cutFlag)=cellfun(@(x){[x,0]},GaussCode(obj.cutFlag));
             end
         end
         function [GaussCode,orientation]=getVirtualGaussCode(obj)
-            SW=SageWrapper.H;
-
+            if obj.formatFlag("VG")
+                GaussCode=obj.virtualGaussCode;
+                orientation=obj.virtualOrientation;
+            else
+                if obj.formatFlag("G")
+                    GaussCode=obj.GaussCode;
+                    orientation=obj.orientation;
+                else
+                    [GaussCode,orientation]=obj.getGaussCode();
+                end
+                vv=find(orientation==0);
+                for i = 1:length(GaussCode)
+                    idx=ismember(GaussCode{i}, [vv, -vv]);
+                    GaussCode{i} = GaussCode{i}(~idx); % Remove virtual crossings
+                end
+                orientation(vv)=[];
+                obj.virtualGaussCode=GaussCode;
+                obj.virtualOrientation=orientation;
+                obj.formatFlag("VG")=true;
+            end
+            if ~isempty(obj.cutFlag)
+                % If there are cut edges, append 0 to the end of each Gauss code
+                GaussCode(obj.cutFlag)=cellfun(@(x){[x,0]},GaussCode(obj.cutFlag));
+            end
         end
-        function convertVG2G(obj)
+        function calcVG2G(obj)
             vgc=obj.virtualGaussCode;
             vsgn=obj.orientation;
             [gc,sgn]=vg2g(vgc,vsgn);
@@ -499,10 +847,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             obj.EdgeTable.CrossingID=[hi;ti].';
         end
 
-        
+
     end
-%% plot, display, and disp methods
-    methods 
+    %% plot, display, and disp methods
+    methods
         function p=plot(obj,arg)
             arguments
                 obj
@@ -600,10 +948,17 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         function disp1(obj)
             % Short text display
             disp('<a href="matlab:help VirtualLink">Virtual Link object</a>:')
-            fprintf("Gauss Code:")
-            dispC(obj.GaussCode);
-            fprintf("Orientation:")
-            disp("["+join(string(obj.orientation),", ") + "]")
+            if obj.formatFlag("G")
+                fprintf("Gauss Code:")
+                dispC(obj.GaussCode);
+                fprintf("Orientation:")
+                disp("["+join(string(obj.orientation),", ") + "]")
+            elseif obj.formatFlag("VG")
+                fprintf("Virtual Gauss Code:")
+                dispC(obj.virtualGaussCode);
+                fprintf("Orientation:")
+                disp("["+join(string(obj.virtualOrientation),", ") + "]")
+            end
         end
         function disp2(obj)
             % Long text display
@@ -632,6 +987,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
     %% setData
     methods
         function setData(obj,arg)
+            % SetData Set data for the VirtualLink object.
+            % Input can be (virtual)GaussCode, (virtual)PDCode, or ostring.
+            % virtual data means that extra virtual crossings have to be added to be a (virtual) link.
+            %
             arguments
                 obj
                 arg.orientation
@@ -653,26 +1012,36 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.formatFlag("G")=true;
                 NC=sum(cellfun(@length,arg.GaussCode)==0);
                 NV=length(arg.orientation);
+                obj.virtualFlag=false;
             elseif isfield(arg,"virtualGaussCode")
                 assert(all(isfield(arg,["orientation"])))
-                obj.virtualGaussCode = arg.virtualGaussCode;
-                obj.orientation=arg.orientation;
+                obj.virtualGaussCode =helperCut( arg.virtualGaussCode,obj);
+                % obj.orientation=arg.orientation;
+                obj.virtualOrientation=arg.orientation;
                 obj.formatFlag("VG")=true;
-                obj.convertVG2G();
-
+                % obj.calcVG2G();
+                NC=sum(cellfun(@length,arg.virtualGaussCode)==0);
+                NV=length(arg.orientation);
+                obj.virtualFlag=true;
             elseif isfield(arg,"PDCode")
                 % assert(all(isfield(arg,["isVirtual"])))
                 if isfield(arg,["Ncircle"])
                     NC=arg.Ncircle;
                 elseif ~isempty(arg.PDCode)
-                    NC=0;
+                    NC=0; % if not specified, assume that no unknots are included
                 else
-                    NC=1;
+                    NC=1; % unknot
                 end
                 obj.formatFlag("PD")=true;
                 obj.PDCode=arg.PDCode;
                 NV=size(arg.PDCode,1);
                 obj.orientation=ones(1,NV);
+                if isfield(arg,"isVirtual")
+                    obj.isVirtual=arg.isVirtual;
+                else
+                    obj.isVirtual=false(1,NV);
+                end
+                obj.virtualFlag=false;
             elseif isfield(arg,"table")
                 assert(numel(arg.table)==2)
                 data=join(string(arg.table),",");
@@ -684,7 +1053,6 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % disp(data)
                 return
             elseif isfield(arg,"ostring")
-
                 % 入力: O-data文字列 'v_{1}^{+r}v_{2}^{-l}⊗v_{3}^{+r}'
                 % 出力: obj.V, obj.W を復元
                 gc = {}; ori = [];
@@ -717,15 +1085,34 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     end
                 end
                 % gc=fliplr(gc); %反転を有効にする設定を用意するか
-                obj.setData(Gauss=gc,orientation=ori);
+                obj.setData(virtualGauss=gc,orientation=ori);
                 return
             end
-            obj.setSageLink()
+            if ~obj.virtualFlag
+                obj.setSageLink()
+                if obj.formatFlag("PD")
+                    [~,ori]=obj.getPDCode;
+                    obj.sageOrientation=ori;
+                end
+            end
             obj.Ncircle=NC;
             obj.CrossingTable=cell2table(num2cell(nan(NV,length(obj.CrossingTableVariableNames))), ...
                 VariableNames=obj.CrossingTableVariableNames);
             obj.EdgeTable=cell2table(num2cell(nan(NV*2+NC,length(obj.EdgeTableVariableNames))), ...
                 VariableNames=obj.EdgeTableVariableNames);
+
+            function gc=helperCut(gc,vlobj)
+                % if 0 is inserted in the Gauss code, it is a cut edge
+                % and gc code is stored after removing 0
+                % cut flag is stored in obj.cutFlag
+                [~,cutIdx]=cellfun(@(x)ismember(0,x),gc);
+                if any(cutIdx)
+                    % If there are cut edges, append 0 to the end of each Gauss code
+                    cutFlag=logical(cutIdx);
+                    gc(cutFlag)=arrayfun(@(x,i){x{1}([i+1:end,1:i-1])},gc(cutFlag),cutIdx(cutFlag));
+                    vlobj.cutFlag=cutFlag;
+                end
+            end
         end
     end
 end
@@ -741,10 +1128,14 @@ end
 function [idxC,idx]=findC(key,arr)
     % find the index of key in arr={[...],...,[...]}]}
     try
-    idxC=find(cellfun(@(C)ismember(key,C),arr));
-    idx=find(key==arr{idxC});
+        idxC=find(cellfun(@(C)ismember(key,C),arr));
+        idx=find(key==arr{idxC});
     catch
         assert(isscalar(key))
+        if isempty(idxC)
+            error("cannot find the key`%s` in the array`%s` ",string(key), ...
+                "[["+join(cellfun(@(x)join(string(x),","),arr),"], [") + "]]")
+        end
         assert(isscalar(idxC))
 
     end
@@ -927,7 +1318,7 @@ function [gc,sgn]=vg2g(vgc,vsgn)
         dispC(gc)
     end
 
-   
+
     function regF=updateFace(regF,bnd,f1,f2,fnew,cntE)
         % update the face in regF with the new boundary bnd
         % bnd=unique(bnd);

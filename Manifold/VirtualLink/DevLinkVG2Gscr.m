@@ -1,4 +1,4 @@
-arg=10;
+arg=8;
 switch arg
     case 1 % unknot
         vgc={[]};
