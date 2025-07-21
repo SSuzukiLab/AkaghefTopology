@@ -200,14 +200,15 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 case "BMP" % Bumping move
                     assert(length(V)==2||length(V)==1) % 2 vertices for Bumping move
                     if length(V)==2
-                        assert(V(1)~=V(2))
+                        isPositiveV=V(1)>0;
+                        assert((V(1)~=V(2))&&(V(2)>0==isPositiveV))
                         [gc,ori]=obj.getVirtualGaussCode;
-                        [sj1,vj1]=findC(-abs(V(1)),gc);
-                        [sj2,vj2]=findC(-abs(V(2)),gc);
-                        sgn=ori(V);
+                        [sj1,vj1]=findC(V(1),gc);
+                        [sj2,vj2]=findC(V(2),gc);
+                        sgn=ori(abs(V));
                         if sj1==sj2 && (vj1==vj2+1|| vj1==vj2-1)&& sgn(1)*sgn(2)==-1
                             % check if the vertices are adjacent
-                            V=V((3-sgn)/2); % V has orientation [1,-1]
+                            V=V((3+sgn*(2*isPositiveV-1))/2); % V has orientation [1,-1]
                             tbl=table("",V,VariableNames=["detail","vertex"]);
                         end
                     else
@@ -379,31 +380,32 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         else
                             orientationOfNewCircle=double(arg.detail);
                         end
+                        % issue: B02 move
                         tbl=obj.movable("BMP",v=V);
-                        assert(height(tbl)==1,"No valid BMP move found");
+                        assert(height(tbl)==1&&isequal(tbl.vertex,V),"No valid BMP move found");
                         [gc,ori]=obj.getVirtualGaussCode;
                         s0=double(tbl.detail);
-                        [sj1,vj1]=findC(V(1),gc);
+                        [sj1,vj1]=findC(-V(1),gc);
                         gc{sj1}=gc{sj1}([vj1+1:end,1:vj1-1]);
-                        [sj2,~]=findC(V(2),gc);
-                        [sj0,vj0]=findC(-V(1),gc);
+                        [sj2,~]=findC(-V(2),gc);
+                        [sj0,vj0]=findC(V(1),gc);
                         vnew=max([gc{:}])+1;
                         gc{sj0}(vj0)=-vnew;
-                        vj0=find(gc{sj0}==-V(2),1);
+                        vj0=find(gc{sj0}==V(2),1);
                         gc{sj0}(vj0)=[];
-                        vj2=find(gc{sj2}==V(2),1);
+                        vj2=find(gc{sj2}==-V(2),1);
                         if orientationOfNewCircle
-                            gc_circle=[V(1:2),vnew];
-                            ori([V,vnew])=[-1,1,1];
+                            gc_circle=[-V(1:2),vnew];
+                            ori([abs(V),vnew])=[-1,1,1];
                         else
-                            gc_circle=[V([2,1]),vnew];
-                            ori([V,vnew])=-[-1,1,1];
+                            gc_circle=[-V([2,1]),vnew];
+                            ori([abs(V),vnew])=-[-1,1,1];
                         end
                         if sj1==sj2 % if the vertices V are in the same strand, split into two strands
-                            gc(length(gc)+(1:2))={[-V(1),gc{sj2}(1:vj2-1)],[-V(2),gc{sj2}(vj2+1:end)]};
+                            gc(length(gc)+(1:2))={[V(1),gc{sj2}(1:vj2-1)],[V(2),gc{sj2}(vj2+1:end)]};
                             gc{sj2}=gc_circle;
                         else % if the vertices are in different strands, form one strand
-                            gc{sj2}=[-V(2),gc{sj2}([vj2+1:end,1:vj2-1]),-V(1),gc{sj1}];
+                            gc{sj2}=[V(2),gc{sj2}([vj2+1:end,1:vj2-1]),V(1),gc{sj1}];
                             gc{sj1}=gc_circle;
                         end
                         obj.setData(virtualGauss=gc,orientation=ori);
