@@ -9,11 +9,13 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
 
         CrossingTable
         EdgeTable
+        VirtualEdgeTable
         StrandTable
         RegionTable
     end
     properties
         formatFlag  =dictionary(["G" "PD" "VG" "VPD"],false(1,4))
+        isWeighted (1,1)=false
         sageLinked =false
         virtualFlag (1,1)=true
     end
@@ -22,8 +24,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         description
     end
     properties
-        GaussCode (1,:) cell % cell array of Gauss code for each component
-        orientation (1,:) double% +1/-1 for right/left type crossings
+        GaussCode (1,:) cell % cell array of Gauss code for each component  
+        % each cell is a vector of integers, positive for over-crossings, negative for under-crossings
+        
+        orientation (1,:) double% +1/-1/0 for right/left/virtual type crossings
         virtualOrientation (1,:) double % +1/-1 for right/left type real crossings
         PDCode (:,4) double% NV by 4 matrix of PD code
         Ncircle (1,1) double% the number of circle(unknot) components
@@ -52,7 +56,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         EdgeTableVariableNames = {
             'ID',           % Unique edge identifier
             'Label',        % Optional edg label
-            'CrossingID',       % Source crossing ID [source,target](or NaN for free edg)
+            'CrossingID',   % Source crossing ID [source,target](or NaN for free edg)
+            'isOver',       % true if the edge goes over [source,target] crossing
             'StrandID',     % Associated strand ID
             'Position',     % array of complex coordinates for drawing
             'IsVirtual'     % true if arc involves only virtual crossings
@@ -81,8 +86,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         function validateStructure(obj)
         end
 
-        function isClosed(obj)
-        end
+        
 
 
         %% Moves
@@ -114,6 +118,31 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 case "reverse"
                     error("reverse move is not implemented yet")
             end
+        end
+        function convertKnotCompl(obj)
+            [vgc,ori]=obj.getVirtualGaussCode;
+            NV=length(ori);
+            dic = dictionary();
+            for i = 1:NV
+                dic{i} = 4*(i-1) + [1,2];
+                if ori(i)>0
+                    dic{-i} = -4*(i-1) - [2,3];
+                else        
+                    dic{-i} = -4*(i-1) - [4,1];
+                end
+            end
+            vgc2=cellfun(@(x) {horzcat(dic{x})},vgc);
+            for i = 1:NV
+                dic{i} = 4*(i-1) + [3,4];
+                if ori(i)>0
+                    dic{-i} = -4*(i-1) - [4,1];
+                else        
+                    dic{-i} = -4*(i-1) - [2,3];
+                end
+            end
+            vgc2=[vgc2;cellfun(@(x) {horzcat(dic{fliplr(x)})},vgc)];
+            ori2=repmat([-1,1,-1,1],1,NV);
+            obj.setData(Gauss=vgc2,orientation=ori2);
         end
         function tbl=movable(obj,type,argstr,arg)
             % MOVABLE Get a table of valid moves for the specified type
@@ -557,6 +586,29 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % isVirtual is read-only property
             obj.orientation(logical(arg))=0; % set orientation to 0 for virtual crossings
         end
+        function [ret,criterion]=isClosed(obj)
+            % C1 頂点を取り除いて, 対応する辺同士をつなげるとただ 1 つの単純閉曲線となる.
+            % C2 [BP] の Figure 1.2 で 3 価グラフに置き換えたものは連結である.
+            % C3 [BP] の Figure 1.3 で置き換えてできる単純閉曲線を考える. このとき連結成分の個数は元の
+            % グラフの頂点 +1 と等しい.
+
+            obj.calcStrandTable;
+            criterion=false(1,3);
+            criterion(1)=height(obj.StrandTable)==1; % C1
+            
+            G=obj.getGraphA;
+            criterion(2)=max(G.conncomp)==1; % C2
+
+            tbl=obj.getDiskTable;
+            [~,ori]=obj.getVirtualGaussCode;
+            NV=length(ori);
+            criterion(3)=height(tbl)==NV+1;
+
+            ret=all(criterion);
+        end
+    end
+    %% system
+    methods
         function ret=get.sageOrientation(obj)
             % Return orientation in Sage format
             % convert 0 to 1 for Sage compatibility
@@ -758,7 +810,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             PDCode=cellfun(@(x){double(x)},cell(PDCode));
             PDCode=vertcat(PDCode{:});
             orient=double(SW.exec(sprintf("%s.orientation()",obj.sageName)));
-
+            Ncircle=obj.Ncircle;
         end
         function [GaussCode,orientation]=getGaussCode(obj)
             if obj.formatFlag("G")
@@ -805,6 +857,134 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 GaussCode(obj.cutFlag)=cellfun(@(x){[x,0]},GaussCode(obj.cutFlag));
             end
         end
+        function [VPD,vori,Nc]=getVirtualPDCode(obj)
+            % Get the virtual PD code and orientation
+            if obj.formatFlag("VPD")
+                VPD=obj.virtualPDCode;
+                vori=obj.virtualOrientation;
+                Nc=obj.Ncircle;
+            else
+                [vgc,vori]=obj.getVirtualGaussCode();
+                % Convert virtual Gauss code to virtual PD code
+                if isempty(vori)
+                    % Handle empty case (unknot components only)
+                    VPD = [];
+                    Nc = length(vgc);
+                else
+                    % Get all crossing vertices
+                    NV=length(vori);
+                    
+                    % Count unknot components (empty Gauss codes)
+                    Nc = sum(cellfun(@isempty, vgc));
+
+                    % Initialize PD code matrix
+                    pd2 = nan(NV, 4);
+                    edgeCounter = 0;
+                    for strandIdx = 1:length(vgc)
+                        if isempty(vgc{strandIdx})
+                            continue; % Skip unknot components
+                        end
+                        
+                        strand = vgc{strandIdx};
+                        strandEdges = edgeCounter + [1:length(strand),1];
+                        edgeCounter = edgeCounter + length(strand);
+                        strand(end+1)= strand(1); % Close the loop for the strand
+                        % Process each crossing in this strand
+                        for i = 1:length(strand)-1
+                            v = strand(i);
+                            pd2(abs(v),[1,3]+(v>0)) = strandEdges(i+[0,1]);
+                        end
+                    end
+                    if any(isnan(pd2(:)))
+                        % Handle case where some crossings might not be properly connected
+                        warning('possible issue with virtual Gauss code');
+                    end
+                    % Convert to PD code format
+                    j=find(vori>0);
+                    VPD=pd2;
+                    VPD(j,[4,2])=VPD(j,[2,4]);
+
+                end
+                obj.virtualPDCode=VPD;
+                obj.virtualOrientation=vori;
+                obj.formatFlag("VPD")=true;
+            end
+        end
+        function G=getGraphA(obj)
+            G=graph;
+            [PD,ori,Ncircle]=obj.getVirtualPDCode();
+            edges=unique(PD(:)).';
+            NV=length(ori);
+            arr=[4,1,2,3,4,1];
+            for e=edges
+                idx=find(PD==e,2);
+                v=mod(idx-1,NV)+1;
+                d=(idx-v)/NV;
+                G=G.addedge(3*(v(1)-1)+arr(d(1)+(1:3)), ...
+                            3*(v(2)-1)+arr(d(2)+(1:3)),e);
+            end
+        end
+        function G=getDSDiagram(obj)
+            G=digraph;
+            [PD,ori,Ncircle]=obj.getVirtualPDCode();
+            edges=unique(PD(:)).';
+            NV=length(ori);
+            arr=[4,1,2,3,4,1];
+            for e=edges
+                idx=find(PD==e,2);
+                v=mod(idx-1,NV)+1;
+                d=(idx-v)/NV;
+                if d(1)==1||d(1)==2&&ori(v(1))>0||d(1)==4&&ori(v(1))<0
+                    % if the edge is a virtual crossing, add it as a directed edge
+                    G=G.addedge(3*(v(1)-1)+arr(d(1)+(1:3)), ...
+                                3*(v(2)-1)+arr(d(2)+(1:3)),e);
+                else
+
+                end
+                % if the edge is a real crossing, add it as an undirected edge
+                G=G.addedge(3*(v(1)-1)+arr(d(1)+(1:3)), ...
+                            3*(v(2)-1)+arr(d(2)+(1:3)),e);
+            end
+            % [~,vjp]=ismember(PD2(:,3),PD2(:,2)); 
+            % vertexの接続関係を示すPDのデータ構造があれば便利かもしれない
+            % [~,vjm]=ismember(PD2(:,3),PD2(:,1));
+            % PD3(:,3)=vjp-vjm;
+            % [~,vjp]=ismember(PD2(:,4),PD2(:,2));
+            % [~,vjm]=ismember(PD2(:,4),PD2(:,1));
+        end
+        function [tbl,G]=getDiskTable(obj)
+            % 
+            persistent dic
+            if isempty(dic)
+                dp([1,2,4,5,9,12,7,6,8,11,10,3])=[1:6,1:6];
+                dm([1,2,4,5,9,12,7,10,3,11,6,8])=[1:6,1:6];
+                dic=dictionary([1,-1],{dp,dm});
+            end
+            T=obj.calcVirtualEdgeTable;
+            G=digraph();
+            [PD,ori,Ncircle]=obj.getVirtualPDCode();
+            edges=unique(PD(:));
+            NE=length(edges); % ignoring Ncircle
+            vec=dictionary([edges;-edges], ...
+                mat2cell([eye(NE);-eye(NE)],ones(2*NE,1),NE));
+            tmp=[0;1;0;0;1;0]*(ori>0)+[0;0;1;0;0;1]*(ori<0);
+            G=G.addnode(table(tmp(:),Var="Ndot"));
+            for i=1:height(T)
+                v=T.CrossingID(i,:);
+                tmp=6*(v-1)+ ...
+                    [dic{ori(v(1))}((1:3)+6+3*T.isOver(i,1));
+                    dic{ori(v(2))}((1:3)+3*T.isOver(i,2))].';    
+                G=G.addedge(tmp([1,2,6]),tmp([4,5,3]),T.ID(i)*[1,1,-1]);
+            end
+            [cycles,edges_u]=G.allcycles;
+            edges_s=cellfun(@(c){G.Edges.Weight(c)'},edges_u);
+            % nodes=cellfun(@(c){G.Edges.EndNodes(c,1)'},cycles);
+            Ndots=cellfun(@(c)sum(G.Nodes.Ndot(c)),cycles);
+            tbl=table(cycles,edges_s,Ndots);
+            tmp=cellfun(@(c){sum(vertcat(vec{c}),1)},edges_s);
+            tbl.dx=vertcat(tmp{:});
+            tbl.cp=1-tbl.Ndots/2;
+        end
         function calcVG2G(obj)
             vgc=obj.virtualGaussCode;
             vsgn=obj.orientation;
@@ -834,6 +1014,23 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             obj.StrandTable.Edges = strands; % Assign the strands to the table
             obj.StrandTable.Vertices =gc.'; % Assign the vertices to the table
         end
+        function calcWeight(obj)
+            tbl=obj.getDiskTable;
+            SW=SageWrapper.H;
+            dx=SW.toStr(tbl.dx,2);
+            cp=SW.toStr(tbl.cp,1);
+            
+            cmd=[
+            sprintf("A = Matrix(ZZ, %s)",dx);
+            sprintf("b = vector(ZZ, %s)",cp);
+            "w = A.solve_right(b)";
+            "Z = A.right_kernel_matrix()"
+            "[str(list(w)),str(Z)]"];
+            C=SW.exec(cmd);
+            w=str2num(string(C{1}));
+            Z=str2num(string(C{2}));
+            w,Z
+        end
         function [hi,ti]=calcEdgeDirection(obj)
             % Calculate edge directions based on PD code on Sage
             pname=obj.sageName;
@@ -848,7 +1045,28 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             ti=double(ret{2});
             obj.EdgeTable.CrossingID=[hi;ti].';
         end
-
+        function tbl=calcVirtualEdgeTable(obj)
+            % Get the edge table with crossing IDs and positions
+            
+            [PD,ori,Ncircle]=obj.getVirtualPDCode();
+            NV=length(ori);
+            PD2=PD;
+            j=find(ori>0);
+            PD2(j,[4,2])=PD2(j,[2,4]);
+            edges=unique(PD(:));
+            [~,vidxT]=ismember(edges,PD2(:,[1,2]));
+            [~,vidxS]=ismember(edges,PD2(:,[3,4]));
+            CrossingID=[vidxS,vidxT];
+            isOver=CrossingID>NV;
+            CrossingID(isOver)=CrossingID(isOver)-NV;
+            tbl=cell2table(num2cell(nan(length(edges),length(obj.EdgeTableVariableNames))), ...
+                VariableNames=obj.EdgeTableVariableNames);
+            tbl.ID=edges;
+            tbl.CrossingID= CrossingID;
+            tbl.isOver=isOver;
+            obj.VirtualEdgeTable=tbl;
+        end
+        
 
     end
     %% plot, display, and disp methods

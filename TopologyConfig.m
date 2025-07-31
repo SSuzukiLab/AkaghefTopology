@@ -17,38 +17,13 @@ classdef TopologyConfig < dynamicprops & matlab.mixin.SetGet
         VL=struct( ...
             disp=1 ...
             )
+        dic dictionary
     end
 
-    methods
-        % function obj = TopologyConfig()
-        %     % Constructor: load existing XML or create default settings
-        % 
-        % 
-        %     obj.update()
-        % end
-        % function ret=struct(obj)
-        %     % Convert properties to a struct
-        %     ret = struct();
-        %     props = properties(obj);
-        %     for i = 1:length(props)
-        %         ret.(props{i}) = obj.(props{i});
-        %     end
-        % end
-        % function update(obj)
-        % 
-        %     config= yamlread("config.yaml");
-        %     props=string(fieldnames(config))';
-        %     for prop=props
-        %         if ~obj.isprop(prop)
-        %             addprop(prop);
-        %         end
-        %         obj.(prop)=config.(prop);
-        %     end
-        % end
-        % 
-        % function saveConfig(obj)
-        %     % Write current Config struct to XML file
-        %     yamlwrite("config.yaml", obj.struct());
-        % end
+    methods(Access=private)
+        function obj = TopologyConfig()
+            % This class must be singleton. get instance by accessing
+            % the property .H
+        end
     end
 end

@@ -1,4 +1,4 @@
-arg=8;
+arg=2;
 switch arg
     case 1 % unknot
         vgc={[]};
@@ -41,6 +41,7 @@ end
 
 [gc,sgn]=vg2g(vgc,vsgn);
 vl.setData(Ga=gc,ori=sgn)
+%%
 vl.plot
 
 

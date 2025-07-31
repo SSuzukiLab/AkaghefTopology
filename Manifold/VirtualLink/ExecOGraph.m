@@ -4,7 +4,7 @@ vl=VirtualLink();
 %%
 
 % vl.setData(gauss={[-1, 2, -3, 1, -2, 3]},sign= [1, 1, 1])
-vl.setData(gauss={[1,-1]},sign= [1])
+vl.setData(gauss={[1,-1]},ori= [1])
 % [pdCode,Ncircle,isVirtual]=vl.getPDCode
 
 %[appendix]{"version":"1.0"}
