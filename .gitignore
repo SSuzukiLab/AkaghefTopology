@@ -35,3 +35,25 @@ codegen/
 # original
 .DS_Store
 __pycache__/
+
+/Manifold/VirtualLink/experiment/C250704Python.m
+
+/Manifold/VirtualLink/experiment/C250720Experiment.m
+
+/Manifold/VirtualLink/experiment/CP_RHS_mid.mat
+
+/Manifold/VirtualLink/experiment/SageLinkInput.py
+
+/Manifold/VirtualLink/experiment/comparisonReport.pdf
+
+/Manifold/VirtualLink/experiment/diskexpr.m
+
+/Manifold/VirtualLink/experiment/hopffibration.m
+
+/Manifold/VirtualLink/experiment/mip.py
+
+/Manifold/VirtualLink/experiment/plotLinkOriginal.py
+
+/Manifold/VirtualLink/experiment/plot_expr.m
+
+/Manifold/VirtualLink/experiment/vl_issue.mat

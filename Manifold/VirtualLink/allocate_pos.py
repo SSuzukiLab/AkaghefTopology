@@ -1,4 +1,4 @@
-def allocate_positions(self):
+def allocate_positions(self,bendingNumbers):
     # import numpy 
     # import mip
     # pd_code = self.pd_code()
@@ -104,7 +104,14 @@ def allocate_positions(self):
     # we store the result in a vector s packing right bends as negative left ones
     # values = MLP.get_values(v, convert=ZZ, tolerance=1e-3)
     values = MLP.get_values(v)
-    s = [values[2 * i] - values[2 * i + 1] for i in range(len(edges))]
+    s = None
+    # if bendingNumbers is empty list, we use the MLP solution
+    if not bendingNumbers:
+        s = [values[2 * i] - values[2 * i + 1] for i in range(len(edges))]
+    else:
+        s = bendingNumbers
+    print("bending numbers", s)
+    
     # segments represents the different parts of the previous edges after bending
     segments = {e: [(e, i) for i in range(abs(s[edges.index(e)]) + 1)]
                 for e in edges}
@@ -364,16 +371,20 @@ def apply_x_offset(segment_list, xtra):
     """
     
     return [[[point[0] + xtra, point[1]] for point in segment] for segment in segment_list]
+
 comp = LINK._isolated_components()
 component_gap = 0.5  # Gap between components in the plot
 # Handle isolated components individually
 coords=[]
 edgeID=[]
+bending_numbers = BENDING_NUMBERS
+if bending_numbers is None:
+    bending_numbers = [[] for _ in comp]  # Default to empty bending numbers
 crossings=dict()
 offset_x=0
 for i in range(len(comp)):
     link=Link(comp[i])
-    ret = allocate_positions(link)
+    ret = allocate_positions(link,bending_numbers[i])
     xs=[x[0] for x in flatten(ret[0],max_level=1)]   
     coord=apply_x_offset(ret[0], offset_x)
     offset_x+=max(xs)-min(xs)+ component_gap

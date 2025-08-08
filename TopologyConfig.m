@@ -1,6 +1,5 @@
 classdef TopologyConfig < dynamicprops & matlab.mixin.SetGet
     %TOPOLOGYCONFIG Configuration manager class
-    %   Inherits dynamicprops to manage XML settings as properties
 
     properties(Constant)
         % Singleton instance
@@ -20,10 +19,14 @@ classdef TopologyConfig < dynamicprops & matlab.mixin.SetGet
         dic dictionary
     end
 
-    methods(Access=private)
+    methods
         function obj = TopologyConfig()
-            % This class must be singleton. get instance by accessing
-            % the property .H
+            persistent flag
+            if ~isempty(flag)
+                error(['TopologyConfig is a singleton. ' ...
+                    'Use TopologyConfig.H to access the instance.']);
+            end
+            flag=1;
         end
     end
 end
