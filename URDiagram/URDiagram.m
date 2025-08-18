@@ -1,10 +1,19 @@
 classdef URDiagram<handle
     % URDiagram - A class to represent and manipulate UR Diagrams.
+    % setDataFromCVW(obj,C, V, W): basic
+    % setDataFromCVS(obj,C, V, S,eps): S:symbolic, 
+    %   eps: (symbolic) small perturbation parameter, if not given, use eps_ei
+    % setDataFromV(obj, V): set vertex data only(?)
+    % issue: have to add to config
+    % trace calculation has 3 types: 
+    %  1:calcutate by eps=0 or 1e-6
+    %  2:calcutate by using symvar eps_ei and taking limit
+    %  3:calcutate by using symvar eps and taking limit
 
     properties
         C (1,1) sym=1
         V (1,:) double % V must contain ±pair of indices of edges
-        E %(prop,chord idx)
+        E =zeros(5,0)%(prop,chord idx) 
         W (1,:) sym
         section
     end
@@ -504,7 +513,7 @@ classdef URDiagram<handle
             ret=obj.trace2;
         end
         function ret=trace1(obj)
-            assert(isscalar(numel(obj.W)),"cannot calculate trace")
+            assert(isscalar(obj.W),"cannot calculate trace")
             e=simplify(-obj.C/obj.W);
             vs=symvar(e);
             vs=vs(contains(string(vs),"eps"));
@@ -542,6 +551,8 @@ classdef URDiagram<handle
         function obj = URDiagram()
             % Initialize the URDiagram object
         end
+        % set methods
+        
         function obj=setDataFromCVW(obj,C, V, W)
             % Set the vertex and edge data
             obj.C=C;

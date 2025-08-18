@@ -387,6 +387,10 @@ for i in range(len(comp)):
     ret = allocate_positions(link,bending_numbers[i])
     xs=[x[0] for x in flatten(ret[0],max_level=1)]   
     coord=apply_x_offset(ret[0], offset_x)
+    # As a last resort(苦し紛れ), in the case of abalone,
+    # direction of edges are exceptionally inverted
+    if len(comp[i])==1:
+        coord=[e[::-1] for e in coord]
     offset_x+=max(xs)-min(xs)+ component_gap
     coords.extend(coord)
     edgeID.extend(ret[1])

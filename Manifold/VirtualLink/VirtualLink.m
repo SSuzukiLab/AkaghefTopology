@@ -721,6 +721,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
     %% graphics
     methods
         function [PE,V,E]=calcPositions(obj,strct)
+            % calcPositions determines the positions of vertices, edges
+            % issue: Ncircle are not implemented
+            % issue: plot fails when bending number is not appropriate
+            %  (also in case of auto layouting).
+            % 
             SW=SageWrapper.H;
             try
                 SW.exec(obj.sageName)
@@ -778,8 +783,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     continue
                 end
                 edges(end+(1:2))=edges(1:2); % close the loop
+                
                 for ei=2:length(edges)
-                    flag=0;
+                    flag=0; 
                     segs=PE{edges(ei)};
                     vend=abs(TE.Crossing(edges(ei),:));
                     if segs(end)~=V(vend(2))
@@ -915,6 +921,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 PDCode=cellfun(@(x){double(x)},cell(PDCode));
                 PDCode=vertcat(PDCode{:});
                 orientation=double(SW.exec(sprintf("%s.orientation()",obj.sageName)));
+                obj.PDCode=PDCode;
+                obj.orientation=orientation;
             end
             Ncircle=obj.Ncircle;
         end
@@ -1235,9 +1243,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             cmd=[...
                 "t,h="+pname+"._directions_of_edges()";
                 "pd="+pname+".pd_code()";
-                "ti = [(1 + pd.index(t[e]))*(1-2*(t[e].index(e)==2))" + ...
+                "ti = [(1 + pd.index(t[e]))*(1-2*(t[e][2]==e))" + ...
                 "                  for e in sorted(t.keys())]";
-                "hi = [(1 + pd.index(h[e]))*(1-2*(h[e].index(e)==0))" + ...
+                "hi = [(1 + pd.index(h[e]))*(1-2*(h[e][0]==e))" + ...
                 "                  for e in sorted(h.keys())]";
                 "ti,hi"];
             ret=SageWrapper.H.exec(cmd);
@@ -1421,7 +1429,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             xlim padded
             ylim padded
             axis equal
-            axis off equal
+            % axis off equal
             hold off
             set(gca, 'LooseInset', max(get(gca, 'TightInset'), 0))
 
@@ -1522,7 +1530,6 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 arg.RGaussCode
                 arg.PDCode
                 arg.Ncircle
-                arg.weight
                 arg.isVertex
                 arg.ostring
                 arg.DTCode
@@ -1532,7 +1539,6 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % (e.g. crossings, connections, topology) has changed.
                 % This forces to initialize tables.
                 arg.reset = true;
-
             end
             if arg.reset
                 obj.formatFlag=obj.formatFlag0;
@@ -1596,8 +1602,6 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
 
                 NV=size(arg.PDCode,1);
                 obj.CrossingTable=repmat(obj.CrossingTableInit,NV,1);
-                obj.formatFlag("PD")=true;
-                obj.formatFlag("TC")=true; %flag立てる場所おかしい
                 obj.PDCode=arg.PDCode;
                 % obj.orientation=arg.orientation;
                 % obj.orientation=ones(1,NV);
@@ -1609,10 +1613,22 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.virtualFlag=false;
                 obj.calcEdgeTable;
                 if ~isfield(arg,"orientation") %isVertex,orientationの統合
-                    arg.orientation=nan(1,NV);
+                    try
+                        obj.formatFlag("PD")=true;
+                        obj.setSageLink;
+                        arg.orientation=double(SageWrapper.H.exec( ...
+                            sprintf("%s.orientation()",obj.sageName)));
+                    catch ME
+                        obj.formatFlag("PD")=false;
+                        rethrow(ME);
+                    end
                 end
+                obj.PDCode=arg.PDCode;
+                obj.orientation=arg.orientation;
                 obj.headMap=pd2hm(arg.PDCode,arg.orientation);
                 obj.CrossingTable.HeadMap=obj.headMap;
+                obj.formatFlag("PD")=true;
+                obj.formatFlag("TC")=true; 
             elseif isfield(arg,"table")
                 assert(numel(arg.table)==2)
                 data=join(string(arg.table),",");
@@ -1707,9 +1723,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % Convert PD code to head map
                 idx=find(ori>=0);
                 pd(idx,[4,2])=pd(idx,[2,4]);
-                [~,vm]=ismember(pd(:,1:2),pd(:,3));
-                [~,vp]=ismember(pd(:,1:2),pd(:,4));
-                hm=[-vm(:,1)+vm(:,2),-vp(:,1)+vp(:,2)];
+                [~,vm]=ismember(pd(:,3:4),pd(:,1));
+                [~,vp]=ismember(pd(:,3:4),pd(:,2));
+                hm=[-vm(:,1)+vp(:,1),-vm(:,2)+vp(:,2)];
             end
 
         end
