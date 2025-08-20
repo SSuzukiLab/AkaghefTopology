@@ -69,12 +69,12 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             VariableNames = {
             'ID',           % Unique edge identifier
             'Label',        % Optional edg label
-            'Crossing',     % Source crossing ID [source,target](or NaN for free edg)
+            'Crossing',     % Signed crossing ID [source,target](or NaN for free edg)
             'isOver',       % true if the edge goes over [source,target] crossing
             'Weight',       % Optional weight for the edge
             'StrandID',     % Associated strand ID
             'Position',     % array of complex coordinates for drawing
-            'Arc'   ,       % vertex IDs for the arc
+            'Arc'   ,       % signed crossing IDs for the arc
             'IsVirtual'     % true if arc involves only virtual crossings
             })
 
@@ -922,7 +922,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 PDCode=vertcat(PDCode{:});
                 orientation=double(SW.exec(sprintf("%s.orientation()",obj.sageName)));
                 obj.PDCode=PDCode;
-                obj.orientation=orientation;
+                % obj.orientation=orientation; %isVirtualCrossingを経由する必要
             end
             Ncircle=obj.Ncircle;
         end
@@ -1237,6 +1237,53 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             %     [~,den]=numden(sym(V_(:,i)));
             %     den=lcm(den);
         end
+        function ret=calcSpec(obj,arg,param)
+            arguments
+                obj 
+                arg string {mustBeMember(arg,["b1"])}
+                param =[]
+            end
+            switch arg
+                case "b1"
+                    assert(obj.isClosed,"not impl for non-closed manifold")
+                    [~,~,hp]=obj.calcWeight;
+                    ret=size(hp,1);
+            end
+        end
+        function ret=calcInvariant(obj,hopfalg)
+            % must execute in Execution repository
+            
+            if isa(hopfalg,'VectAlg')
+                assert(obj.isWeighted)
+                % assume that Tp,Tm,S are already calc right after declaration
+                Tp=hopfalg.getSC('Tp');
+                Tm=hopfalg.getSC('Tm');
+                S=hopfalg.getSC('_S');
+                obj.calcREdgeTable;
+                [~,ori]=obj.getRGaussCode;
+                TRE=obj.REdgeTable;
+                expr1=repmat("Tp",1,length(ori));
+                expr1(ori<0)="Tm";
+                for i=1:length(ori)
+                    expr1(i)=expr1(i)+sprintf("{%s}",join(string(4*(i-1)+(1:4)),","));
+                end
+                expr2=repmat("(S^%d){%d,%d}",1,height(TRE));
+                M=abs(TRE.Crossing)*4+(TRE.Crossing>0)-[1,3];
+                W=2*TRE.Weight;
+                for i=1:height(TRE)
+                    expr2(i)=sprintf(expr2(i),W(i),M(i,1),M(i,2));
+                end
+                expr=join([expr1,expr2]);
+                ret=calcTensorExpression(expr,[]);
+            elseif strcmp(hopfalg,"UR")
+                D=VL2URD(obj);
+                b1=obj.calcSpec("b1");
+                % D.simplify2;
+                % vars=symvar([D.W,D.C]);
+                % expr=simplify(subs([D.C,D.W],vars,eps*ones(size(vars))));
+                ret=D.trace;
+            end 
+        end
         function [hi,ti]=calcEdgeDirection(obj)
             % Calculate edge directions based on PD code on Sage
             pname=obj.sageName;
@@ -1429,7 +1476,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             xlim padded
             ylim padded
             axis equal
-            % axis off equal
+            axis off equal
             hold off
             set(gca, 'LooseInset', max(get(gca, 'TightInset'), 0))
 
