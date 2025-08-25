@@ -170,12 +170,12 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % MOVABLE Get a table of valid moves for the specified type
             % See `move` for the meaning of arguments and move types.
             % if the table returned is empty, no valid moves are found.
-            % tbl: table with columns "detail" and "vertex" for the move
+            % tbl: table with columns "param" and "vertex" for the move
             arguments
                 obj
                 type (1,1) string {mustBeMember(type,["R1","R2","R3","MP","PS","CP","02","CP","H","BMP","B02"])}  % move type
                 argstr struct =struct.empty;
-                arg.detail (1,1) string="" % detailed move type
+                arg.param (1,1) =nan % parameter for the move
                 arg.v (1,:) double =[]% vertex indices for move
                 arg.e (1,:) double =[]% edge indices for move
                 arg.strict (1,1) logical =false % strict mode, fix the order of vertices
@@ -203,8 +203,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     else
                         T=load("MPmoveData.mat").T_MP_R;
                     end
-                    if strlength(arg.detail)>0
-                        T=T(find(T.detail==arg.detail),:);
+                    if ~isa(arg.param,"double")
+                        T=T(find(T.param==arg.param),:);
                     end
                     if length(ori)<max(V)
                         return; % no valid moves if vertex IDs exceed
@@ -213,7 +213,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     X=searchMoves(T,gc,V,cur);
                     % disp(X)
                     if ~isempty(X)
-                        tbl=X(:,["detail","vertex"]);%消す必要無い？
+                        tbl=X(:,["param","vertex"]);%消す必要無い？
                     end
                     % tbl.Properties.VariableNames=["name","vertex"];
                     % disp(T)
@@ -230,7 +230,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         cgc=gc{sj}([end,1:end,1]);
                         isadj_n=cgc(vj)==-V(2)|| cgc(vj+2)==-V(2);
                         if isadj_p&&isadj_n
-                            tbl=table("PS",V,VariableNames=["detail","vertex"]);
+                            tbl=table("PS",V,VariableNames=["param","vertex"]);
                         end
                     else
                         error("PS move is not implemented yet")
@@ -240,14 +240,18 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     cur=ori(V);
                     X=searchMoves(T_PS_R,gc,V,cur);
                     if ~isempty(X)
-                        tbl=X(:,["detail","vertex"]);
+                        tbl=X(:,["param","vertex"]);
                     end
                 case "CP"
                     assert(any(length(V)==[3,5]))
                 case "02" % move 0-2
                     assert(length(V)==2||length(arg.e)==1) % 2 vertices or 1 edge for 0-2 move
-                case "H" % handle move
+                case "H" 
                     assert(length(V)==1) % 2 vertices or 1 edge for handle move
+                    gc=obj.getRGaussCode;
+                    NV=max(horzcat(gc{:}));
+                    assert(V(1)<=NV,"vertex index exceeds the number of vertices")
+                    tbl=table(0,V,VariableNames=["param","vertex"]);
                 case "BMP" % Bumping move
                     assert(length(V)==2||length(V)==1) % 2 vertices for Bumping move
                     if length(V)==2
@@ -260,7 +264,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         if sj1==sj2 && (vj1==vj2+1|| vj1==vj2-1)&& sgn(1)*sgn(2)==-1
                             % check if the vertices are adjacent
                             V=V((3+sgn*(2*isPositiveV-1))/2); % V has orientation [1,-1]
-                            tbl=table("",V,VariableNames=["detail","vertex"]);
+                            tbl=table("",V,VariableNames=["param","vertex"]);
                         end
                     else
                         error("BMP move is not implemented yet")
@@ -279,10 +283,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         % to check if a strand made of -V is included
                         % if any(cellfun(@(x)isequal(x,-V),gc))
                         if any(cellfun(@(x)isequal(x,-V)||isequal(x,V),gc))
-                            tbl=table("",V,VariableNames=["detail","vertex"]);
+                            tbl=table("",V,VariableNames=["param","vertex"]);
                             % elseif any(cellfun(@(x)isequal(x,-V([2,1])),gc))
                         elseif any(cellfun(@(x)isequal(x,-V([2,1]))||isequal(x,V([2,1])),gc))
-                            tbl=table("",V([2,1]),VariableNames=["detail","vertex"]);
+                            tbl=table("",V([2,1]),VariableNames=["param","vertex"]);
                         end
                     else
                         error("B02 move is not implemented yet")
@@ -291,6 +295,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             end
             % issue: 同一データでも適用位置によって複数解が出てくる可能性を考慮する必要
             tbl=unique(tbl,'rows');
+            if nargout==0
+                disp(tbl)
+            end
             function ret=flatGC(gc,n)
                 % Flatten the Gauss code
                 Ns=length(gc);
@@ -358,14 +365,14 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % parameters:
             % arg.v: vertex indices for the move
             % arg.e: edge indices for the move
-            % arg.detail: detailed move type
+            % arg.param: parameter for the move
             % for MP move, specify A1~D4 types of MP moves
-            % for BMP move, specify detail=0 or detail=1 for the orientation of the new circle
+            % for BMP move, specify param=0 or param=1 for the orientation of the new circle
             arguments
                 obj
                 type (1,1) string {mustBeMember(type,["R1","R2","R3","MP","PS","CP","02","CP","H","BMP","B02"])}  % move type
                 argstr struct =struct.empty;
-                arg.detail (1,1) string="" % detailed move type
+                arg.param (1,1)=nan % parameter for the move
                 arg.v (1,:) double % vertex indices for move
                 arg.e (1,:) double % edge indices for move
             end
@@ -391,22 +398,72 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     N=length(V);
                     [gc,ori]=obj.getRGaussCode;
                     load("MPmoveData.mat","T_MP_L","T_MP_R");
+                    param=string(arg.param);
                     if N==2
-                        idx=find(T_MP_L.detail==arg.detail,1);
+                        idx=find(param==T_MP_L.param,1);
                         T0=T_MP_L(idx,:);
                         T1=T_MP_R(idx,:);
                     else
-                        idx=find(T_MP_R.detail==arg.detail,1);
+                        idx=find(param==T_MP_R.param,1);
                         T0=T_MP_R(idx,:);
                         T1=T_MP_L(idx,:);
                     end
-                    [gc,ori]=convertGaussCode(gc,ori,T0,T1,V);
+                    [gc,ori,Vnew,dic2]=convertGaussCode(gc,ori,T0,T1,V);
+                    if obj.isWeighted&&false
+                        % update the weight of the crossing 
+                        % 現状，MP moveなどに対してadhocな実装にしている
+                        dic=dictionary([1:N,-(1:N)],[V,-V]);
+                        data0=T0.weight{1};
+                        assert(~isequal(data0,nan),"not supported yet");
+                        TE=obj.REdgeTable;
+                        jmiddle=~(data0(:,4));
+                        jE=zeros(size(data0,1),1);
+                        vend=[];
+                        for i=1:size(data0,1) % find the edge indices from data(:,1:2)
+                            iodir=data0(i,4);
+                            if iodir==0
+                                jE(i)=find(TE.Crossing(:,1)==dic(data0(i,1)),1);
+                            else
+                                jE(i)=find(TE.Crossing(:,iodir)==dic(data0(i,iodir)),1);
+                                vend(end+1)=TE.Crossing(jE(i),3-iodir);
+                            end
+                        end
+                        % issue: adjust weight by applying H-move
+                        assert(all(TE.Weight(jE(jmiddle))==data0(jE(jmiddle),3)),"weight mismatch");
+                        for i=1:size(data0,1)
+                            TE.Weight(jE(i))=TE.Weight(jE(i))-data0(i,3);
+                        end
+                        TE2=TE(:,["Crossing","Weight"]);
+                        TE2(jE,:)=[]; % moveにかかわるvertexに挟まれているedgeのweight以外固定
+                        TE2.Crossing=dic2(TE2.Crossing);
+
+                        % obj.REdgeTable.Weight(idx,:)=obj.REdgeTable.Weight(idx,:)+ ...
+                        %     [-1;1;-1;1]*arg.param;
+                    end
                     obj.setData(RGauss=gc,orientation=ori);
+                    if obj.isWeighted&&false
+                        obj.calcREdgeTable;
+                        
+                        obj.setWeight(TE2);
+                        data1=T1.weight{1};
+                        N=length(Vnew); % number of vertices related to move after the move
+                        dic=dictionary([1:N,-(1:N)],[Vnew,-Vnew]);
+                        TE=obj.REdgeTable;
+                        for i=1:size(data1,1) 
+                            if data1(i,2)~=0
+                                jE=find(TE.Crossing(:,2)==dic(data1(i,2)),1);
+                            else
+                                jE=find(TE.Crossing(:,1)==dic(data1(i,1)),2);
+                            end
+                            TE.Weight(jE)=TE.Weight(jE)+data1(i,3);
+                        end
+                        obj.REdgeTable=TE;
+                    end
 
                 case "PS"
                     if ~isempty(V)
                         [gc,ori]=obj.getRGaussCode;
-                        idx=double(tbl.detail(1));
+                        idx=double(tbl.param(1));
                         load("PSmoveData.mat","T_PS_R");
                         T0=T_PS_R(idx,:);
                         load("PSmoveData.mat","T_PS_L");
@@ -423,19 +480,30 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 case "02"
                     error("02 move is not implemented yet")
                 case "H"
-                    error("H move is not implemented yet")
+                    assert(~isempty(obj.movable("H",arg)),"invalid arguments")
+                    assert(obj.isWeighted&&~isnan(arg.param),"must be weighted")
+                    gc=obj.getRGaussCode;
+                    [sj,vj]=findC(V,gc);
+                    cgc=[gc{sj}(end),gc{sj},gc{sj}(1)];
+                    edge=cgc(vj+[0,1;1,2]);
+                    [sj,vj]=findC(-V,gc);
+                    cgc=[gc{sj}(end),gc{sj},gc{sj}(1)];
+                    edge=[edge;cgc(vj+[0,1;1,2])];
+                    [~,idx]=ismember(edge,obj.REdgeTable.Crossing,"rows");
+                    obj.REdgeTable.Weight(idx,:)=obj.REdgeTable.Weight(idx,:)+ ...
+                        [-1;1;-1;1]*arg.param;
                 case "BMP"
                     if length(V)==2
-                        if strlength(arg.detail)==0
-                            error("specify the parameter detail=0,or detail=1")
+                        if isnan(arg.param)
+                            error("specify the parameter param=0,or param=1")
                         else
-                            orientationOfNewCircle=double(arg.detail);
+                            orientationOfNewCircle=double(arg.param);
                         end
                         % issue: B02 move
                         tbl=obj.movable("BMP",v=V);
                         assert(height(tbl)==1&&isequal(tbl.vertex,V),"No valid BMP move found");
                         [gc,ori]=obj.getRGaussCode;
-                        s0=double(tbl.detail);
+                        s0=double(tbl.param);
                         [sj1,vj1]=findC(-V(1),gc);
                         gc{sj1}=gc{sj1}([vj1+1:end,1:vj1-1]);
                         [sj2,~]=findC(-V(2),gc);
@@ -492,7 +560,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         obj.setData(RGauss=gc,orientation=ori);
                     end
             end
-            function [gc,ori]=convertGaussCode(gc,ori,T0,T1,V)
+            function [gc,ori,Vnew,dic2]=convertGaussCode(gc,ori,T0,T1,V)
                 % Convert Gauss code based on the move
                 % T0: original Gauss code data
                 % T1: new Gauss code data
@@ -514,6 +582,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     dic2=@(x)x;
                     ori(V)=T0.ori;
                 end
+                Vnew=V(1:T1.NV);
                 dic1=dictionary([1:length(V),-1:-1:-length(V)],[V,-V]);
                 % position of start point of each fragment
                 [sj_,vj_]=arrayfun(@(x)findC(dic1(x),gc),T0.gcFirst);
@@ -669,7 +738,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             ret=obj.RCrossingTable.Orientation';
         end
         function set.isCut(obj,arg)
-            obj.StrandTable.isCut=arg;
+            obj.StrandTable.isCut(:)=arg;
         end
         function ret=get.isCut(obj)
             ret=obj.StrandTable.isCut;
@@ -1780,21 +1849,21 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % Set the weight of the strands
             % arguments
             % obj: VirtualLink object
-            % weight: weight of the strands, can be a dictionary or a cell array
+            % weight: weight of the strands, can be a table or a double array
             % type: type of the weight, can be "REdge", "Edge", "Crossing", "RCrossing", or "Strand"
-            % As for weight of odata, type= "REdge" and weight is a dictionary
+            % As for weight of odata, type= "REdge" and weight is a table
             %  from edge={[source, target]} to weight value, or array of weights of each edge in REdgeTable
             arguments
                 obj
-                weight % can be a dictionary or a cell array
+                weight % can be a table or a double array
                 type {mustBeMember(type,["REdge","Edge","Crossing","RCrossing","Strand"])} = "REdge"
             end
             switch type
                 case "REdge"
                     obj.calcREdgeTable;
-                    if isa(weight,"dictionary")
-                        [~,idx]=ismember(vertcat(weight.keys{:}),obj.REdgeTable.Crossing,'rows');
-                        obj.REdgeTable.Weight(idx)=weight.values;
+                    if isa(weight,"table")
+                        [~,idx]=ismember(weight.Crossing,obj.REdgeTable.Crossing,'rows');
+                        obj.REdgeTable.Weight(idx)=weight.Weight;
                     elseif isa(weight,"double")
                         obj.REdgeTable.Weight=weight(:);
                     end
@@ -1896,7 +1965,7 @@ function [gc,ori]=vg2g(rgc,ro)
             % start strand sweeping from a used vertex
             [f2,vidx2]=findC(-v1,regV);
             regV{f2}=[cntV+1,regV{f2}([vidx2:end,1:vidx2])];
-            regE{f2}=[-cntE,regE{f2}(1:vidx2-1),regE{f2}(vidx2:end),cntE];
+            regE{f2}=[-cntE,regE{f2}(vidx2:end),regE{f2}(1:vidx2-1),cntE];
             regF=regF.addedge(f2,[f2 f2],[0 cntE]);
             [f1,vidx]=findC(v1,regV);
             regV{f1}=[regV{f1}(1:vidx-1),-v1,0,-v1,regV{f1}(vidx+1:end)];
@@ -1913,7 +1982,7 @@ function [gc,ori]=vg2g(rgc,ro)
         end
         for vi=2:length(cgc)
             % loop through each vertex in the strand
-            fd
+            fd()
             cntE=cntE+1;
             ge{si}(end+1)=cntE;
             v1=abs(cgc(vi));
@@ -1978,8 +2047,8 @@ function [gc,ori]=vg2g(rgc,ro)
                             cntE=cntE+1;
                             bnds=regF.Edges.Weight(findedge(regF,f1,f2));
                             bnd=bnds(1); %ここが選択の余地あり
-                            vidx=find(bnd==abs(regE{f1}),1)+1;
-                            eo=regE{f1}(vidx-1)>0;
+                            vidx=find(bnd==abs(regE{f1}),1)+1; % put new v in the middle of regV{f1}(vidx-[0,1])
+                            eo=regE{f1}(vidx-1)>0; % orientation of edge
                             es=2*eo-1;
                             regV{f1}=[regV{f1}(1:vidx-1),cntV,regV{f1}(vidx:end)];
                             regE{f1}=[regE{f1}(1:vidx-1-~eo),es*cntE,regE{f1}(vidx-1+eo:end)];
@@ -2037,9 +2106,9 @@ function [gc,ori]=vg2g(rgc,ro)
         regE{f1}=regE{f1}([2:vidx-2,1]);
         regF=updateFace(regF,abs(regE{fnew}),f1,f2,fnew,cntE);
         regF=regF.rmedge(f2,f2);
-        fd
+        fd()
         % regF.plot
-        dispC(ge)
+        % dispC(ge)
         dispC(gc)
     end
     %
@@ -2073,15 +2142,22 @@ function [gc,ori]=vg2g(rgc,ro)
     end
     function fd()
         % for debugging
-        return
+        if ~TopologyConfig.H.VL_vg2g_disp, return;end
         try
             fprintf("f1=%d\n",f1)
-            fprintf("si=%d, vi=%d, v_gc=%d, s_gc=%d\n",si,vi,cgc(vi),ro(abs(cgc(vi))))
+            fprintf("si=%d, vi=%d, v_gc=%d\n",si,vi,cgc(vi))
+            fprintf(", s_gc=%d\n",ro(abs(cgc(vi))))
         catch
         end
+        fprintf("edges of strands=    ")
         dispC(ge)
+        fprintf("vertices of regions= ")
         dispC(regV)
+        fprintf("edges of regions=    ")
         dispC(regE)
+        fprintf("gauss code=          ")
+        dispC(gc)
+        disp("connections of face:")
         disp(regF.Edges{:,:}')
 
     end
