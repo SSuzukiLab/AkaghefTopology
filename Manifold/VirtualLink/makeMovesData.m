@@ -37,11 +37,11 @@ save("moveData/MPmoveData","T_MP_R","T_MP_L")
 LHS=VirtualLink;
 LHS.setData(ostring="v_{1}^{-r}v_{2}^{+r}v_{2}^{-r}v_{3}^{+r}v_{3}^{-r}v_{1}^{+r}");
 LHS.convert("mirrorMfd");
-LHS.cutFlag=true;
+LHS.isCut=true;
 RHS=VirtualLink;
 RHS.setData(ostring="v_{1}^{-l}v_{2}^{-l}v_{5}^{+r}v_{3}^{-l}v_{2}^{+l}v_{3}^{+l}v_{4}^{+r}v_{4}^{-r}v_{1}^{+l}v_{5}^{-r}");
 RHS.convert("mirrorMfd");
-RHS.cutFlag=true;
+RHS.isCut=true;
 save("moveData/CPmoveObj.mat","LHS","RHS")
 %%
 T_PS_R=combinations({[-1,-2],[-2,-1]},{[1,-1],[-1,1]});

@@ -609,22 +609,22 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             obj.orientation(logical(arg))=0; % set orientation to 0 for virtual crossings
         end
         function [ret,criterion]=isClosed(obj)
+            % isClosed : determine obj represents closed normal o-graph
             % C1 頂点を取り除いて, 対応する辺同士をつなげるとただ 1 つの単純閉曲線となる.
             % C2 [BP] の Figure 1.2 で 3 価グラフに置き換えたものは連結である.
             % C3 [BP] の Figure 1.3 で置き換えてできる単純閉曲線を考える. このとき連結成分の個数は元の
             % グラフの頂点 +1 と等しい.
-
-            obj.calcStrandTable;
+            
             criterion=false(1,3);
-            criterion(1)=height(obj.StrandTable)==1; % C1
-
+            [gc,ori]=obj.getRGaussCode;
+            criterion(1)=length(gc)==1; % C1
+            
             G=obj.getGraphA;
             criterion(2)=max(G.conncomp)==1; % C2
-
+            % issue: calc vg2g isn't needed
             tbl=obj.getDiskTable;
-            [~,ori]=obj.getRGaussCode;
             NV=length(ori);
-            criterion(3)=height(tbl)==NV+1;
+            criterion(3)=height(tbl)==NV+1; %C3
 
             ret=all(criterion);
         end
@@ -1258,7 +1258,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % assume that Tp,Tm,S are already calc right after declaration
                 Tp=hopfalg.getSC('Tp');
                 Tm=hopfalg.getSC('Tm');
-                S=hopfalg.getSC('_S');
+                S=hopfalg.getSC('antipode');
                 obj.calcREdgeTable;
                 [~,ori]=obj.getRGaussCode;
                 TRE=obj.REdgeTable;
@@ -1339,7 +1339,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         function TRE=calcREdgeTable(obj)
             % real/virtual
             % if decide arc= if obj is real
-            %
+            % issue: getGaussCodeだと計算量が無駄な場合がある．isVirtualか確認
 
             [gc,ori]=obj.getGaussCode;
             emptyIdx=cellfun(@isempty,gc);
