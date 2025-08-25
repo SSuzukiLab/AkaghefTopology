@@ -1830,7 +1830,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 hm=nan(NV,2);
                 for i=1:length(gc)
                     cgc=[gc{i},gc{i}(1)];
-                    for j=1:length(cgc)-1
+                    iscut=cgc(end-1)==0;
+                    for j=1:length(cgc)-1-iscut
                         hm(abs(cgc(j)),1+(cgc(j)>0))=cgc(j+1);
                     end
                 end
