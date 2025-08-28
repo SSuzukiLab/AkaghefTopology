@@ -17,6 +17,7 @@ classdef TopologyConfig < dynamicprops & matlab.mixin.SetGet
             disp=1 ...
             )
         dic dictionary
+        VL_vg2g_disp=true
     end
 
     methods

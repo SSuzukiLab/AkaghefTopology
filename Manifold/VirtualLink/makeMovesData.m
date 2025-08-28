@@ -19,7 +19,6 @@ tmp=rowfun(@VirtualLink.calcReverseStrand,T_MP_L, ...
     InputVariables=["gc","ori","rev"],OutputVariableNames=["gc","ori"]);
 T_MP_L.gc=tmp.gc;
 T_MP_L.ori=tmp.ori;
-T_MP_L=modify(T_MP_L);
 T_MP_L.weight=cell(16,1); %format:[v0,v1,weight,isInternal]
 for ii=1:16
     tmp=[];
@@ -34,6 +33,7 @@ for ii=1:16
     T_MP_L.weight{ii}=tmp;
 end
 T_MP_L.weight(ismember(T_MP_L.param,["A4";"B4"]))={nan};
+T_MP_L=modify(T_MP_L);
 %%
 T_MP_R=table(["A";"B";"C";"D"], ...
    [{[1,-3,2],[3],[-1,-2]};
@@ -49,9 +49,7 @@ tmp=rowfun(@VirtualLink.calcReverseStrand,T_MP_R, ...
 InputVariables=["gc","ori","rev"],OutputVariableNames=["gc","ori"]);
 T_MP_R.gc=tmp.gc;
 T_MP_R.ori=tmp.ori;
-T_MP_R=modify(T_MP_R);
 T_MP_R.weight=T_MP_L.weight;
-
 MPWeightData=dictionary(["A2";"B2";"C3";"D3"],  ...
                     {[-2,1];[2,1];[1,1];[2,-1]});
 for ii=1:16
@@ -66,12 +64,13 @@ for ii=1:16
     end
     param=T_MP_R.param{ii};
     if ismember(param,MPWeightData.keys)
-        arr(arr(:,1)==MPWeightData{param}(1),3)=MPWeightData{param}(2);
-        arr(arr(:,2)==MPWeightData{param}(1),3)=-MPWeightData{param}(2);
+        arr(arr(:,1)==MPWeightData{param}(1),3)=-MPWeightData{param}(2);
+        arr(arr(:,2)==MPWeightData{param}(1),3)=MPWeightData{param}(2);
     end
     T_MP_R.weight{ii}=arr;
 end
 T_MP_R.weight(ismember(T_MP_R.param,["A4";"B4"]))={nan};
+T_MP_R=modify(T_MP_R);
 save("moveData/MPmoveData","T_MP_R","T_MP_L")
 %% CP move
 LHS=VirtualLink;
@@ -110,4 +109,15 @@ save("moveData/B02moveData","T_B02_L");
 function T=modify(T)
     T.gcFirst=cellfun(@(x) x(1),T.gc,"ErrorHandler",@(~,~)nan);
     T.NV=max(cellfun(@max,T.gc),[],2);
+    if ~ismember("weight", T.Properties.VariableNames)
+        T.weight(:) = {nan}; % Initialize weight column if not present
+    else
+        for i=1:height(T)
+            wdata=T.weight{i};
+            if any(isnan(wdata)), continue; end
+            jmiddle=~wdata(:,4);
+            wdata=[wdata(~jmiddle,:);wdata(jmiddle,:)];
+            T.weight{i}=wdata;
+        end
+    end
 end
