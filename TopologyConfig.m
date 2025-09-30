@@ -12,12 +12,12 @@ classdef TopologyConfig < dynamicprops & matlab.mixin.SetGet
         % Display mode for URD: 0=default, 1=short, 2=long
         URDdisp = 2;
         % Display mode for updates
-        URupdateDisp = 1;
+        URupdateDisp = false;
         VL=struct( ...
             disp=1 ...
             )
         dic dictionary
-        VL_vg2g_disp=true
+        VL_vg2g_disp=false
     end
 
     methods

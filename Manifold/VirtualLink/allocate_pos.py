@@ -110,7 +110,7 @@ def allocate_positions(self,bendingNumbers):
         s = [values[2 * i] - values[2 * i + 1] for i in range(len(edges))]
     else:
         s = bendingNumbers
-    print("bending numbers", s)
+    # print("bending numbers", s)
     
     # segments represents the different parts of the previous edges after bending
     segments = {e: [(e, i) for i in range(abs(s[edges.index(e)]) + 1)]
@@ -185,7 +185,7 @@ def allocate_positions(self,bendingNumbers):
         nregions.append(r1)
         nregions.append(r2)
         badregions = [nr for nr in nregions if any(x[1] == -1 for x in nr)]
-    print(pieces)
+    # print(pieces)
     MLP = MixedIntegerLinearProgram(maximization=False)
     v = MLP.new_variable(nonnegative=True, integer=True)
     for e in segments:
