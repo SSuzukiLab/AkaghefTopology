@@ -4,6 +4,14 @@
 % NV: number of vertices, param: parameter
 % NOT SUPPORTED: PS move, CP move, moves with weight, H-move, weight move
 cd(fullfile(TopologyConfig.ProjectPath,'Manifold','VirtualLink'))
+%% 02 move
+T_02_R=table({[-1,-2,2,1]},"inv",[1,-1], ...
+    VariableNames=["gc","param","ori"]);
+T_02_R.weight={[0,-1,0,2; -1,-2,0,0; -2,2,1,0; 2,1,-1,0; 1,0,0,1]};
+T_02_R=modify(T_02_R);
+T_02_L=table({[],[]},"dir",zeros(1,0),VariableNames=["gc","param","ori"]);
+T_02_L=modify(T_02_L);
+save("moveData/M02moveData","T_02_R","T_02_L")
 %% MP move
 T_MP_L=table(["A";"B";"C";"D"], ...
    [{[-1],[1,2],[-2]};
@@ -72,7 +80,7 @@ end
 T_MP_R.weight(ismember(T_MP_R.param,["A4";"B4"]))={nan};
 T_MP_R=modify(T_MP_R);
 save("moveData/MPmoveData","T_MP_R","T_MP_L")
-%% CP move
+%% CP move obj
 LHS=VirtualLink;
 LHS.setData(ostring="v_{1}^{-r}v_{2}^{+r}v_{2}^{-r}v_{3}^{+r}v_{3}^{-r}v_{1}^{+r}");
 LHS.convert("mirrorMfd");
@@ -82,6 +90,12 @@ RHS.setData(ostring="v_{1}^{-l}v_{2}^{-l}v_{5}^{+r}v_{3}^{-l}v_{2}^{+l}v_{3}^{+l
 RHS.convert("mirrorMfd");
 RHS.isCut=true;
 save("moveData/CPmoveObj.mat","LHS","RHS")
+%% CP move
+T_CP_L=table("dir",{[1,-2,2,-3,3,-1]},[-1,-1,-1],VariableNames=["param","gc","ori"]);
+T_CP_L=modify(T_CP_L);
+T_CP_R=table("inv",{[1,2,-5,3,-2,-3,-4,4,-1,5]},[1,1,1,-1,-1],VariableNames=["param","gc","ori"]);
+T_CP_R=modify(T_CP_R);
+save("moveData/CPmoveData","T_CP_L","T_CP_R");
 %% Pure Sliding move
 T_PS_R=combinations({[-1,-2],[-2,-1]},{[1,-1],[-1,1]});
 T_PS_R=table([repmat({[1,2]},4,1),T_PS_R.Var1],[[1;1;1;1],[-1;-1;-2;-2]], ...
@@ -108,7 +122,10 @@ save("moveData/B02moveData","T_B02_L");
 
 function T=modify(T)
     T.gcFirst=cellfun(@(x) x(1),T.gc,"ErrorHandler",@(~,~)nan);
-    T.NV=max(cellfun(@max,T.gc),[],2);
+    T.gcLast=cellfun(@(x) x(end),T.gc,"ErrorHandler",@(~,~)nan);
+    for i=1:height(T)
+        T.NV(i)=max([0,T.gc{i,:}]);
+    end
     if ~ismember("weight", T.Properties.VariableNames)
         T.weight(:) = {nan}; % Initialize weight column if not present
     else

@@ -120,6 +120,14 @@ classdef URDiagram<handle
                 error('Invalid index for swapping vertices.');
             end
         end
+        function del(obj,arg)
+            eidx=obj.getEidx(arg);
+            assert(all(eidx~=0));
+            obj.E(:,eidx)=[];
+            obj.W(eidx)=[];
+            obj.V(ismember(obj.V,[arg,-arg]))=[];
+
+        end
         function add(obj,arg,skip)
             arguments
                 obj
@@ -196,15 +204,19 @@ classdef URDiagram<handle
                     error('Invalid: must be adjacent dilation indices.');
                 end
             end
-            if pos(1)>pos(3)
+            mp=[pos(1)>pos(3),pos(2)>pos(4)];
+            if mp(1)&&~mp(2)
                 % obj.V()を追加する必要がある
                 obj.swap(obj.V(pos([1 3])),skip);
-            elseif pos(2)>pos(4)
+            elseif mp(2)&&~mp(1)
                 obj.swap(obj.V(pos([2 4])),skip);
             end
-
             [w,idx]=obj.getW(arg);
-            obj.W(idx(1))=(1+w(1))*(1+w(2))-1;
+            if mp(1)&&mp(2)
+                obj.W(idx(1))=1-(1-w(1))*(1-w(2));
+            else
+                obj.W(idx(1))=(1+w(1))*(1+w(2))-1;
+            end
             obj.E(:,idx(2))=[];
             obj.W(idx(2))=[];
             obj.V(pos([2 4]))=[];
@@ -807,7 +819,7 @@ classdef URDiagram<handle
             diagram=categorical("･"+string(str));
             ret=table(weight,diagram, ...
                 VariableNames=["weight","diagram"], ...
-                RowNames=[string(edge) "C"]);
+                RowNames=[fliplr(string(edge)) "C"]);
         end
 
         % Define other methods here
