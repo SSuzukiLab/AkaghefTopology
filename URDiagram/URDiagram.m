@@ -1,11 +1,11 @@
-classdef URDiagram<handle
+classdef URDiagram<handle&matlab.mixin.Copyable
     % URDiagram - A class to represent and manipulate UR Diagrams.
     % setDataFromCVW(obj,C, V, W): basic
-    % setDataFromCVS(obj,C, V, S,eps): S:symbolic, 
+    % setDataFromCVS(obj,C, V, S,eps): S:symbolic,
     %   eps: (symbolic) small perturbation parameter, if not given, use eps_ei
     % setDataFromV(obj, V): set vertex data only(?)
     % issue: have to add to config
-    % trace calculation has 3 types: 
+    % trace calculation has 3 types:
     %  1:calcutate by eps=0 or 1e-6
     %  2:calcutate by using symvar eps_ei and taking limit
     %  3:calcutate by using symvar eps and taking limit
@@ -13,7 +13,7 @@ classdef URDiagram<handle
     properties
         C (1,1) sym=1
         V (1,:) double % V must contain ±pair of indices of edges
-        E =zeros(5,0)%(prop,chord idx) 
+        E =zeros(5,0)%(prop,chord idx)
         W (1,:) sym
         section
     end
@@ -519,9 +519,64 @@ classdef URDiagram<handle
             obj.reduct3();
             obj.simplifySim;
         end
+        function M=getBlockMatrix(obj)
+            % only for rank=1
+            NB=1;
+            V=obj.V;
+            IB=zeros(size(V));
+            flag=true;
+            for i=1:length(V)
+                if ~flag&&V(i)>0
+                    flag=true;
+                    NB=NB+1;
+                elseif V(i)<0
+                    flag=false;
+                end
+                IB(i)=NB;
+            end
+            M=sym.zeros(NB);
+            uV=unique(abs(V));
+            if length(uV)>1
+                % 2 by NV matrix s/t block index
+                Ist=IB(obj.getVidx([1;-1]*uV));
+                for i=1:length(uV)
+                    M(Ist(1,i),Ist(2,i))=obj.getW(uV(i));
+                end
+            else
+                M=obj.W;
+            end
+        end
+        function simplify3(obj)
+            % simplify3 by determinant formula (only for rank=1)
+            assert(obj.rank==1,"not impl")
+            M=obj.getBlockMatrix();
+            NB=size(M,1);
+            B1=sym(eye(NB)-circshift(eye(NB),1));
+            M2=M+B1;
+            detMB1=det(M2);
+            M3=sym.zeros(NB+2,NB+2);
+            M3(2:end-1,2:end-1)=M;
+            B2=sym(eye(NB+2)-circshift(eye(NB+2),1));
+            B2(end,1)=-1;
+            M3=M3+B2;
+            detMB2=det(M3);
+            W=-detMB1/detMB2;
+            C=-obj.C/detMB2;
+            if isa(W,'sym')
+                W=simplify(W);
+                C=simplify(C);
+            end
+            % F=C(W+1)^θ,   Tr(F)=-C/W=-c/det(M+B1), εε(F)=eeF=C=-c/det(M+B2)
+            % C=εε(F),  W=-εε(F)/Tr(F)=-det(M+B1)/det(M+B2)
+            obj.setDataFromCVW(C,[1,-1],W);         
+        end
         %% invariants
         function ret=trace(obj)
-            obj.simplify2;
+            if obj.rank~=1
+                obj.simplify2;
+            else
+                obj.simplify3;
+            end
             ret=obj.trace2;
         end
         function ret=trace1(obj)
@@ -556,6 +611,20 @@ classdef URDiagram<handle
             end
             ret=e;
         end
+        function ret=trace3(obj)
+            % calc trace by determinant formula (only for rank=1)
+            assert(obj.rank==1,"not impl")
+            M=obj.getBlockMatrix();
+            NB=size(M,1);
+            if NB>1
+                bmat=sym(eye(NB)-circshift(eye(NB),1));
+                M2=M+bmat;
+            else
+                M2=M;
+            end
+            ret=-obj.C/det(M2);
+
+        end
 
 
 
@@ -564,7 +633,7 @@ classdef URDiagram<handle
             % Initialize the URDiagram object
         end
         % set methods
-        
+
         function obj=setDataFromCVW(obj,C, V, W)
             % Set the vertex and edge data
             obj.C=C;
@@ -590,6 +659,24 @@ classdef URDiagram<handle
         function obj=setDataFromV(obj, V)
             % Set the vertex
             obj.setDataFromCVW(1,V,nan*unique(V(V>0)));
+        end
+        function setDataFromCM(obj,C,M)
+            rank=size(M,1);
+            assert(size(M,2)==rank)
+            VC=cell(3,rank);
+            cnt=0;
+            for j=1:rank
+                for i=1:rank
+                    cnt=cnt+1;
+                    VC{1,i}(end+1)=cnt;
+                    VC{2,j}(end+1)=-cnt;
+                end
+            end
+            VC(3,:)={0};
+            VC(3,end)={[]};
+            V=horzcat(VC{:});
+            obj.setDataFromCVW(C,V,M(:));
+
         end
         function obj=setDataFromOData(obj,str)
             % 入力: O-data文字列 'v_{1}^{+r}v_{2}^{-l}⊗v_{3}^{+r}'
@@ -665,7 +752,7 @@ classdef URDiagram<handle
             ret=cell2table(num2cell(obj.E.'),Var=URDiagram.tblname);
 
             W=obj.W.';
-            if isempty(symvar(sum(W)))&&~any(isnan(W))
+            if isempty(symvar(sum(abs(W))))&&~any(isnan(W))
                 [n,d]=rat(W,1e-4);
                 W=sym(n)./sym(d);
             end
@@ -707,14 +794,20 @@ classdef URDiagram<handle
                     str3=string(abs(V));
                     if V>0, str3=str3+'2';
                     else,   str3=str3+'1'; end
-                    
+
                     if W(eidx)>0,   str2="";
                     else,           str2="\overline"; end
-                    
+
                     str=str2+"{\WO}_{"+str3+"}^{\epsilon_"+abs(V)+"}";
                     ret=ret+str;
                 end
             end
+        end
+        function ret=getExpression(obj)
+            C=string(obj.C);
+            V="["+join(string(obj.V),",")+"]";
+            W="["+join(string(obj.W),",")+"]";
+            ret=sprintf("URDiagram().setDataFromCVW(%s,%s,%s)",C,V,W);
         end
 
         function disp(obj)
