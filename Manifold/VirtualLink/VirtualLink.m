@@ -332,7 +332,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     %: 4通りのBMP moveを網羅できていない
                     assert(length(V)==2||length(V)==1) % 2 vertices for Bumping move
                     if length(V)==2
-                        assert((V(1)~=V(2))&&(V(1)*V(2)==-1))
+                        assert((V(1)~=V(2))&&(V(1)*V(2)>0))
                         isPositiveV=V(1)>0;
                         V=abs(V(:).');
                         [gc,ori]=obj.getRGaussCode;
@@ -342,7 +342,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                             sj(3)==sj(4)&&vj(3)+1==vj(4)&&all(ori(V)==[1,-1]);
                             sj(2)==sj(1)&&vj(2)+1==vj(1)&&all(ori(V)==[1,-1]);
                             sj(4)==sj(3)&&vj(4)+1==vj(3)&&all(ori(V)==[-1,1])];
-                        tbl=table("",[V;-V;V([2,1]);-V([2,1])],VariableNames=["param","vertex"]);
+                        tbl=table(strings(4,1),[V;-V;V([2,1]);-V([2,1])],VariableNames=["param","vertex"]);
                         if strict, acceptable=acceptable(2-isPositiveV); end
                         tbl=tbl(acceptable,:);
                     else
@@ -596,11 +596,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         gc{sj0}(vj0)=[];
                         vj2=find(gc{sj2}==-V(2),1);
                         if orientationOfNewCircle
-                            gc_circle=[-V(1:2),Vnew];
-                            ori(abs([V,Vnew]))=[-1,1,1]*S;
-                        else
-                            gc_circle=[-V([2,1]),Vnew];
+                            gc_circle=[-V(1:2),-Vnew];
                             ori(abs([V,Vnew]))=-[-1,1,1]*S;
+                        else
+                            gc_circle=[-V([2,1]),-Vnew];
+                            ori(abs([V,Vnew]))=[-1,1,1]*S;
                         end
                         if sj1==sj2 % if the vertices V are in the same strand, split into two strands
                             gc(length(gc)+(1:2))={[V(1),gc{sj2}(1:vj2-1)],[V(2),gc{sj2}(vj2+1:end)]};
@@ -1679,10 +1679,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 arg.cut (1,:) = [] % cut specified edge indices of strands
                 arg.smooth (1,1) logical = true % smooth the curve
                 arg.color  = 'b' % color of the knot
-                arg.lineWidth (1,1) double = 2 % line width for the knot
-                arg.markerSize (1,1) double = 100 % size of markers for crossings
+                arg.lineWidth (1,1) double = 1 % line width for the knot
+                arg.markerSize (1,1) double = 20 % size of markers for crossings
                 arg.coordinate (1,1) logical =false % show coordinates and axis grid
-                arg.edgeLabel {mustBeMember(arg.edgeLabel,["none","ID","weight","all"])} = "all" % edge label type
+                arg.edgeLabel {mustBeMember(arg.edgeLabel,["none","ID","weight","all"])} = "weight" % edge label type
                 arg.vertexLabel {mustBeMember(arg.vertexLabel,["none","ID","ori","all"])} = "all" % vertex label type
                 arg.vertexStyle {mustBeMember(arg.vertexStyle,["none","real","imag","all"])} = "real" % vertex dot style
                 arg.gap (1,1) double = 0.2 % gap between edges
@@ -1712,22 +1712,20 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
 
             obj.calcStrandTable;
             TS=obj.StrandTable;
-            if arg.virtual
-                edgeLengthList=cellfun(@length,TS.Vertices);
-            else
-                edgeLengthList=cellfun(@length,TS.Crossings);
-            end
             gap=0.2; % gap between edges
 
             edgeSet=unique(horzcat(TS.Edges{:}));
             dic=dictionary(edgeSet,1:length(edgeSet));
             if isempty(arg.cut)
                 arg.cut=0+obj.isCut;
-                arg.cut(logical(arg.cut))=Inf;
+                for si=1:height(TS)
+                    if arg.cut(si)&&arg.virtual
+                        [~,arg.cut(si)]=ismember(TS.Vertices{si}([end,1]),TE.Crossing,"rows");
+                    elseif arg.cut(si)~arg.virtual
+                        [~,arg.cut(si)]=ismember(TS.Crossings{si}([end,1]),TE.Crossing,"rows");
+                    end
+                end
             end
-            assert(length(arg.cut)==height(TS))
-            arg.cut(arg.cut==Inf)=edgeLengthList(arg.cut==Inf);
-
             figure
             hold on
             for ei=1:height(TE)
@@ -1735,22 +1733,25 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 segs=TE.Position{ei};
                 vend=TE.Crossing(ei,:);
                 label=TE.Label(ei);
-                if ismissing(label)
+                if ismissing(label), label=""; end
+                if arg.edgeLabel=="ID"||arg.edgeLabel=="all"
                     label=sprintf('E%d',ei);
                 end
-                if obj.isWeighted
+                if obj.isWeighted&&(arg.edgeLabel=="weight"||arg.edgeLabel=="all")
                     weight=TE.Weight(ei);
-                    label=label+", "+ num2str(weight);
+                    label=join([label,num2str(weight)],", ") ;
                 end
                 % calculate middle point of the segment to place the label
                 if ~ismember(ei,arg.cut)
                     seg=segs(floor(end/2)+(0:1));
                     mp=mean(seg);
                     arrowhead=uvec(seg(1:2))*[-1+.5i,0,-1-.5i]/7+mp;
-                    plot(arrowhead,LineWidth=2,Color='b')
+                    plot(arrowhead,LineWidth=arg.lineWidth,Color=arg.color)
                     % Place the label at the middle point
                     text(real(mp),imag(mp),label,'VerticalAlignment','top');
                 else
+                    arrowhead=segs(1)+uvec(segs(1:2))/3+uvec(segs(1:2))*[-1+.5i,0,-1-.5i]/7;
+                    plot(arrowhead,LineWidth=arg.lineWidth,Color=arg.color)
                     segs=[segs(1)+[0,1/3]*uvec(segs(1:2)) nan segs(end)-[1/3,0]*uvec(segs(end-1:end))];
                 end
                 % Why doubles may be casted into double here?
@@ -1767,7 +1768,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             isVertex=logical(ori);
             Vr=V(isVertex);
             scatter(real(Vr),imag(Vr),arg.markerSize,arg.color,"filled")
-            text(real(Vr),imag(Vr),"V"+string(1:length(Vr)),'VerticalAlignment','bottom')
+            text(real(Vr)+arg.gap/2,imag(Vr)+arg.gap/2,"V"+string(1:length(Vr)),'VerticalAlignment','bottom')
             xlim padded
             ylim padded
             axis equal
@@ -1870,20 +1871,24 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % Default display
             builtin('disp',obj);
         end
-        function disp1(obj)
+        function disp1(obj,type)
             % Short text display
+            arguments
+                obj
+                type string {mustBeMember(type,["","G","VG","PD"])} = ""
+            end
             disp('<a href="matlab:help VirtualLink">Virtual Link object</a>:')
-            if obj.formatFlag("G")
+            if type==""&&obj.formatFlag("G")||type=="G"
                 fprintf("Gauss Code:")
                 dispC(obj.GaussCode);
                 fprintf("Orientation:")
                 disp("["+join(string(obj.orientation),", ") + "]")
-            elseif obj.formatFlag("VG")
+            elseif type==""&&obj.formatFlag("VG")||type=="VG"
                 fprintf("Virtual Gauss Code:")
                 dispC(obj.RGaussCode);
                 fprintf("Orientation:")
                 disp("["+join(string(obj.ROrientation),", ") + "]")
-            elseif obj.formatFlag("PD")
+            elseif type==""&&obj.formatFlag("PD")||type=="PD"
                 fprintf("PD Code:")
                 disp(mat2str(obj.PDCode))
             end
@@ -1927,6 +1932,13 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 fprintf("PD Code:")
                 disp(mat2str(obj.PDCode))
             end
+        end
+        function ret=toString(obj)
+            % issue: format flagごとに処理を分岐する
+            gc=obj.RGaussCode;
+            gc=join(cellfun(@(arr)"["+join(string(arr),", ") + "]",gc),",");
+            ori="["+join(string(obj.ROrientation),", ") + "]";
+            ret=sprintf("[%s;%s]",gc,ori);
         end
     end
     %% setData
@@ -2415,7 +2427,7 @@ function [gc,ori]=vg2g(rgc,ro)
         fd()
         % regF.plot
         % dispC(ge)
-        dispC(gc)
+        % dispC(gc)
     end
     %
     % function [idxC,idx]=findC(key,arr)
