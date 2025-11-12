@@ -18,14 +18,14 @@ classdef TopologyConfig < dynamicprops & matlab.mixin.SetGet
             )
         dic dictionary
         VL_vg2g_disp=false
+        VL_move_method {mustBeMember(VL_move_method,["old","new"])}="new"
     end
 
     methods
         function obj = TopologyConfig()
             persistent flag
             if ~isempty(flag)
-                error(['TopologyConfig is a singleton. ' ...
-                    'Use TopologyConfig.H to access the instance.']);
+                obj=obj.H;
             end
             flag=1;
         end

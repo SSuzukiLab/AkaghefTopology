@@ -548,6 +548,9 @@ classdef URDiagram<handle&matlab.mixin.Copyable
         end
         function simplify3(obj)
             % simplify3 by determinant formula (only for rank=1)
+            % 
+            % F=C(W+1)^θ,   Tr(F)=-C/W=-c/det(M+B1), εε(F)=eeF=C=-c/det(M+B2)
+            % C=εε(F),  W=-εε(F)/Tr(F)=-det(M+B1)/det(M+B2)
             assert(obj.rank==1,"not impl")
             M=obj.getBlockMatrix();
             NB=size(M,1);
@@ -566,8 +569,6 @@ classdef URDiagram<handle&matlab.mixin.Copyable
                 W=simplify(W);
                 C=simplify(C);
             end
-            % F=C(W+1)^θ,   Tr(F)=-C/W=-c/det(M+B1), εε(F)=eeF=C=-c/det(M+B2)
-            % C=εε(F),  W=-εε(F)/Tr(F)=-det(M+B1)/det(M+B2)
             obj.setDataFromCVW(C,[1,-1],W);         
         end
         %% invariants
@@ -624,6 +625,18 @@ classdef URDiagram<handle&matlab.mixin.Copyable
             end
             ret=-obj.C/det(M2);
 
+        end
+        function ret=getCoeff(obj)
+            M=obj.getBlockMatrix();
+            NB=size(M,1);
+            if NB>1
+                M2=sym(eye(NB+2)-circshift(eye(NB+2),1));
+                M2(end,1)=-1;
+                M2(2:end-1,2:end-1)=M2(2:end-1,2:end-1)+M;
+                ret=-obj.C/det(M2);
+            else
+                ret=obj.C;
+            end
         end
 
 

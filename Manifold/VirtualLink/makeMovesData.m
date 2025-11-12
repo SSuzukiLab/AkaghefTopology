@@ -105,19 +105,27 @@ T_PS_L=table({[],[]},nan(1,2),zeros(1,0),0,VariableNames=["gc","gcFirst","ori","
 T_PS_R=modify(T_PS_R);
 save("moveData/PSmoveData","T_PS_R","T_PS_L")
 %% Bumping MP move
-T_BMP_L=table("",{[-1,-2],1,2},[1,-1] ...
-    ,VariableNames=["param","gc","ori"]);
+T_BMP_L=repmat(table(["E1";"F1"],{[1,2],-1,-2;[-1,-2],1,2},[-1,1;1,-1],[1:3;1:3] ...
+    ,VariableNames=["param","gc","ori","cap"]),2,1);
+T_BMP_L.param=["E1";"F1";"E2";"F2"];
+T_BMP_L.label=["E";"F";"E";"F"];
 T_BMP_L=modify(T_BMP_L);
-T_BMP_R=table("",{-1,-2,-3,[1,3,2]},[1,1,-1] ...
-    ,VariableNames=["param","gc","ori"]);
+T_BMP_R=repmat(table(["E1";"F1"],{3,2,1,[-1,-2,-3];-3,-2,-1,[1,2,3]},[-1,1,1;1,-1,-1],[1,3,2,0;1,3,2,0] ...
+    ,VariableNames=["param","gc","ori","cap"]),2,1);
+T_BMP_R.gc(3:4,:)=cellfun(@fliplr,T_BMP_R{1:2,"gc"},UniformOutput=false);
+T_BMP_R.ori(3:4,:)=-T_BMP_R.ori(3:4,:);
+T_BMP_R.param=["E1";"F1";"E2";"F2"];
+T_BMP_R.label=["E";"F";"E";"F"];
 T_BMP_R=modify(T_BMP_R);
 save("moveData/BMPmoveData","T_BMP_L","T_BMP_R")
-
 %% Bumping 02 move
-T_B02_L=table("",{[-1,-2],1,2},[1,-1] ...
-    ,VariableNames=["param","gc","ori"]);
+T_B02_R=table(["1";"2"],{1,2,[-1,-2];1,2,[-2,-1]},[1,-1;-1,1],[2,1,3;2,1,3] ...
+    ,VariableNames=["param","gc","ori","cap"]);
+T_B02_R=modify(T_B02_R);
+T_B02_L=table("",{[],[]},[1,-1],[1,2] ...
+    ,VariableNames=["param","gc","ori","cap"]);
 T_B02_L=modify(T_B02_L);
-save("moveData/B02moveData","T_B02_L");
+save("moveData/B02moveData","T_B02_L","T_B02_R");
 %%
 
 function T=modify(T)
@@ -137,4 +145,11 @@ function T=modify(T)
             T.weight{i}=wdata;
         end
     end
+    if ~ismember("cap", T.Properties.VariableNames)
+        T.cap = repmat(1:size(T.gc,2),height(T),1);
+    end
+end
+function [gc,ori]=signchange(gc,ori)
+    gc=cellfun(@(cgc){-cgc},gc);
+    ori=-ori;
 end

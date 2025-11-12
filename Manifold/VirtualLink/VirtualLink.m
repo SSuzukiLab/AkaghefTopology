@@ -220,9 +220,14 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 arg=argstr;
             end
             tbl=table;
-            V=arg.v;
+            if isfield(arg,"v")
+                V=arg.v;
+            else
+                V=[];
+            end
+            if isfield(arg,"e"), E=arg.e; end
             strict=arg.strict;
-            if isfield(arg,"e")&&~isempty(arg.e), warning("arg.e is not supported yet"); end
+            % if isfield(arg,"e")&&~isempty(arg.e), warning("arg.e is not supported yet"); end
             switch type
                 case "R1"
                     assert(length(V)==1||length(arg.e)==1)
@@ -330,7 +335,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     tbl=table(0,V,VariableNames=["param","vertex"]);
                 case "BMP" % Bumping move
                     %: 4通りのBMP moveを網羅できていない
-                    assert(length(V)==2||length(V)==1) % 2 vertices for Bumping move
+                    assert(length(V)==2||length(V)==3) % 2 or 3 vertices for Bumping move
                     if length(V)==2
                         assert((V(1)~=V(2))&&(V(1)*V(2)>0))
                         isPositiveV=V(1)>0;
@@ -346,10 +351,16 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         if strict, acceptable=acceptable(2-isPositiveV); end
                         tbl=tbl(acceptable,:);
                     else
-                        error("BMP move is not implemented yet")
+                        [gc,ori]=obj.getRGaussCode();
+                        cur=ori(V);
+                        load("moveData/BMPmoveData.mat","T_BMP_R")
+                        X=searchMoves(T_BMP_R,gc,V,cur);
+                        if ~isempty(X)
+                            tbl=X(:,["param","vertex"]);
+                        end
                     end
                 case "B02" % Bumping 0-2 move
-                    assert(length(V)==2)
+                    assert(length(V)==2||isequal(size(E),[2,2]),"invalid parameter")
                     if length(V)==2
                         assert(V(1)~=V(2))
                         [gc,ori]=obj.getRGaussCode;
@@ -368,7 +379,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                             tbl=table("",V([2,1]),VariableNames=["param","vertex"]);
                         end
                     else
-                        error("B02 move is not implemented yet")
+                        % not implemented
+                        tbl=table("",E(:)',VariableNames=["param","edge"]);
                     end
                 otherwise
             end
@@ -453,7 +465,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 argstr struct =struct.empty;
                 arg.param (1,1)=nan % parameter for the move
                 arg.v (1,:) double % vertex indices for move
-                arg.e (1,:) double % edge indices for move
+                arg.e double % edge indices for move
             end
             if ~isempty(argstr)
                 arg=argstr;
@@ -465,7 +477,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             elseif height(tbl)>1
                 warning("moves may be ambiguous. check the specification");
             end
-            V=arg.v;
+            if isfield(arg,"v"), V=arg.v; end
+            if isfield(arg,"e"), E=arg.e; end
+
             switch type
                 case "R1"
                     error("R1 move is not implemented yet")
@@ -503,7 +517,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         load("PSmoveData.mat","T_PS_R");
                         T0=T_PS_R(idx,:);
                         load("PSmoveData.mat","T_PS_L");
-                        [gc,ori]=convertGaussCode(gc,ori,T0,T_PS_L,V);
+                        [gc,ori]=convertGaussCode_(gc,ori,T0,T_PS_L,V);
                         obj.setData(RGauss=gc,orientation=ori);
                     else
 
@@ -519,7 +533,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     else
                         T0=T_CP_R; T1=T_CP_L;
                     end
-                    [gc,ori]=convertGaussCode(gc,ori,T0,T1,V);
+                    [gc,ori]=convertGaussCode_(gc,ori,T0,T1,V);
                     obj.setData(RGauss=gc,orientation=ori);
                     if obj.isWeighted
                         error("weighted CP move is not implemented yet")
@@ -529,7 +543,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     load("M02moveData.mat","T_02_R","T_02_L");
                     if arg.param=="inv" % number of vertices: 2 to 0
                         [gc,ori]=obj.getRGaussCode;
-                        [gc,ori]=convertGaussCode(gc,ori,T_02_R,T_02_L,V);
+                        [gc,ori]=convertGaussCode_(gc,ori,T_02_R,T_02_L,V);
                         TE0=obj.REdgeTable;
                         obj.setData(RGauss=gc,orientation=ori);
                         if obj.isWeighted
@@ -611,12 +625,25 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         end
                         obj.setData(RGauss=gc,orientation=ori);
                     else
-                        error("BMP move inverse is not implemented yet")
+                        assert(ismember(arg.param,["E1";"F1";"E2";"F2"]))
+                        [gc,ori]=obj.getRGaussCode;
+                        load("moveData/BMPmoveData.mat","T_BMP_L","T_BMP_R")
+                        T_BMP_L=T_BMP_L(arg.param==T_BMP_L.param,:);
+                        T_BMP_R=T_BMP_R(arg.param==T_BMP_R.param,:);
+                        [gc,ori]=convertGaussCode(gc,ori,T_BMP_R,T_BMP_L,arg.v);
+                        obj.setData(RGauss=gc,orientation=ori);
                     end
                 case "B02"
-                    if length(V)~=2
-                        error("B02 move is not implemented yet")
-                    else
+                    if isfield(arg,"e")&&isequal(size(arg.e),[2,2])
+                        assert(ismember(arg.param,[1,2]),"specify the parameter param=1,or param=2")
+                        [gc,ori]=obj.getRGaussCode;
+                        load("moveData/B02moveData.mat","T_B02_L","T_B02_R")
+                        T_B02_R=T_B02_R(double(arg.param)==double(T_B02_R.param),:);% orientationOfNewCircle
+                        [gc,ori]=convertGaussCodeFromEdge(gc,ori,T_B02_L,T_B02_R,arg.e);
+                        obj.setData(RGauss=gc,orientation=ori);
+                        % [sj,vj]=arrayfun(@(x)findC(x,gc),E(:,1));
+                        % error("not implemented")
+                    elseif length(V)==2
                         assert(all(V>0))
                         tbl=obj.movable("B02",v=V);
                         assert(height(tbl)==1,"No valid BMP move found");
@@ -640,16 +667,18 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         gc=cellfun(@(x){dic(x)},gc);
                         ori(abs(V))=[];
                         obj.setData(RGauss=gc,orientation=ori);
+                    else
+                        error("invalid parameter or B02 move is not implemented yet")
                     end
             end
-            function [gc,ori,Vnew,map]=convertGaussCode(gc,ori,T0,T1,V)
-                % Convert Gauss code based on the move
+            function [gc,ori,Vnew,map]=convertGaussCode_(gc,ori,T0,T1,V)
+                % Convert Gauss code based on the move(legacy)
                 % T0: original Gauss code data
                 % T1: new Gauss code data
                 % V: vertices involved in the move
                 NV_=max([gc{:}]);
                 map=struct;
-                if T0.NV<T1.NV
+                if T0.NV<=T1.NV
                     % if the number of vertices increases after the move
                     V(T0.NV+1:T1.NV)=NV_+(1:T1.NV-T0.NV);
                     Mgc01=@(x)x;
@@ -670,6 +699,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     ori(V)=T0.ori;
                     Vnew=V;
                 end
+                % issue: don't we replace T1.gc by Mt2gc1?and Mtgc0?
                 Mt2gc1=dictionary([1:length(V),-1:-1:-length(V)],[V,-V]);
                 % position of start point of each fragment
                 [startStrandIdx,startVertexIdx]=arrayfun(@(x)findC(x,gc),Mt2gc1(T0.gcFirst));
@@ -709,6 +739,133 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     % strand to remove must be empty
                     assert(all(cellfun(@(x)isempty(x),gc(sj_remove))))
                     gc(sj_remove)=[]; % remove empty strands
+                end
+            end
+            function [gc,ori,Vnew,map]=convertGaussCodeFromEdge(gc,ori,T0,T1,E)
+                % Convert Gauss code based on the move 
+                % brash up to handle bumping moves but not completed for
+                % all moves
+                % T0: original Gauss code data
+                % T1: new Gauss code data
+                % V: vertices involved in the move
+                V_=length(ori)+1;
+                T0.gc={1,-1};
+                T0.gcFirst=[1,-1];
+                T0.NV=1;
+                after=E(:,1)~=0;
+                for i=1:2
+                    [sj_,vj_]=findC(E(i,2-after(i)),gc);
+                    % insert ±V at the edges specified
+                    gc{sj_}=gc{sj_}([1:vj_,vj_:end]);
+                    gc{sj_}(vj_+after(i))=V_*(-1)^(i-1);
+                end
+                ori(end+1)=0;
+                 [gc,ori,Vnew,map]=convertGaussCode(gc,ori,T0,T1,V_);
+            end
+            function [gc,ori,Vnew,map]=convertGaussCode(gc,ori,T0,T1,V)
+                % 
+                % issue: when seed data contain empty array?
+                NV_=length(ori);
+                map=struct;
+                if T0.NV<=T1.NV
+                    % if the number of vertices increases after the move
+                    V(T0.NV+1:T1.NV)=NV_+(1:T1.NV-T0.NV);
+                    Mgc01=@(x)x;
+                    ori(V)=T1.ori;
+                    Vnew=V(1:T1.NV);
+                elseif T0.NV>T1.NV
+                    Vsort=sort(V);
+                    vrem=setdiff(1:NV_,Vsort(end-(0:T0.NV-T1.NV-1)));
+                    Mgc01=dictionary(vrem,1:NV_-(T0.NV-T1.NV));
+                    Mgc01(Vsort(1:T1.NV))=Vsort(1:T1.NV);
+                    Mgc01(-Mgc01.keys)=-Mgc01.values;
+                    Mgc01(0)=0;
+                    ori(Vsort(1:T1.NV))=T1.ori;
+                    ori=ori(vrem);
+                    Vnew=Vsort(1:T1.NV);
+                end
+                Mt2gc0=dictionary([1;-1]*(1:length(V)),[1;-1]*V);
+                Mt2gc1=dictionary([1;-1]*(1:length(Vnew)),[1;-1]*Vnew);
+                % position of start point of each fragment
+                [startStrandIdx,startVertexIdx]=arrayfun(@(x)findC(x,gc),Mt2gc0(T0.gcFirst));
+                cap=zeros(2,0);
+                frag={};
+                if length(T1.gc)<length(T0.gc)
+                    % if the number of strands decreases after the move, remove strands
+                    sj_remove=startStrandIdx(length(T1.gc)+1:end);
+                    gc_remove=gc(sj_remove);
+                    gc_remove2=cellfun(@(x){Mt2gc0(x)},T0.gc(length(T1.gc)+1:length(T0.gc)));
+                    cond=cellfun(@(A,B)length(A)==length(B) && contains(join(string([B B])), join(string(A))) ...
+                        ,gc_remove,gc_remove2);
+                    % strand to remove must be empty
+                    assert(all(cond),"cannot apply move")
+                else
+                    sj_remove=[];
+                end
+                Ncap=max([T0.cap,T1.cap]);
+                % divide Gauss code into fragment
+                for si=1:length(gc)
+                    % s:current component
+                    % k:current strand to devide into fragment
+                    % update Gauss code for each component
+                    si0s=find(startStrandIdx==si);
+                    
+                    if ismember(si,sj_remove)
+                        continue; % remove strand to delete
+                    elseif isempty(si0s)% no related crossings in this component
+                        cap(:,end+1)=[1;1]*(Ncap+si);
+                        frag{end+1}=Mgc01(gc{si});
+                        continue; % no related crossings in this component
+                    end
+                    iscut=gc{si}(end)==0;
+                    [~,sortidx]=sort(startVertexIdx(si0s));
+                    si0s=si0s(sortidx);
+                    delimeter=[startVertexIdx(si0s),length(gc{si})+1];
+                    % Since the Gauss code is cyclic, if a change wraps from the end to the start,
+                    % remove the first Ndel elements to make it work correctly.
+                    Ndel=delimeter(end-1)+length(T0.gc{si0s(end)})-(length(gc{si})+1);
+                    frag{end+1}=Mgc01(gc{si}(max(Ndel,0)+1:delimeter(1)-1));
+                    % gcpart: temporary Gauss code [gc,T1,gc,T1,...,gc] T1 start at vj_(k)
+                    % dic1: dictionary to convert T1.gc to V
+                    % gc01: delete and shift indices of crossings
+                    Nsi0s=length(si0s);
+                    fi=length(frag);
+                    frag(end+(1:2*Nsi0s))={[]};
+                    cap(1:2,end+(1:2*Nsi0s+1))=(Ncap+si)*(~iscut); % when not cut, connect fragment at the end
+                    for i=1:Nsi0s
+                        si0=si0s(i);
+                        frag{fi+2*i-1}=Mt2gc1(T1.gc{si0});
+                        frag{fi+2*i}=Mgc01(gc{si}(delimeter(i)+length(T0.gc{si0}):delimeter(i+1)-1));
+                        cap(2*fi+4*(i-1)+(0:3))=[-si0,-si0,T1.cap(si0),T0.cap(si0)];
+                    end
+                end
+                % table(cap',frag')
+                gc={};
+                f_used=false(1,length(frag));
+                % merge fragments to form Gauss code
+                while ~all(f_used)
+                    cur=find(~f_used,1);
+                    next=cur;
+                    f_used(next)=true;
+                    gc{end+1}=frag{cur};
+                    while cap(1,next)~=0
+                        next=cap(1,next)==cap(2,:);
+                        if f_used(next), break; end
+                        f_used(next)=true;
+                        gc{end}=[frag{next},gc{end}];
+                    end
+                    prev=cur;
+                    while cap(2,prev)~=0
+                        prev=cap(2,prev)==cap(1,:);
+                        if f_used(prev), break; end
+                        f_used(prev)=true;
+                        gc{end}=[gc{end},frag{prev}];
+                    end  
+                end    
+                % gc=cellfun(@(x){Mgc01(x)},gc);
+                if length(T1.gc)>length(T0.gc)
+                    % if the number of strands increases after the move, add new strands
+                    gc=[gc,cellfun(@(x){Mt2gc0(x)},T1.gc(length(T0.gc)+1:end))];
                 end
             end
             function convertWeight(obj,V,TE0,T0,T1)
@@ -1955,6 +2112,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 arg.orientation
                 arg.GaussCode
                 arg.RGaussCode
+                arg.cut
                 arg.PDCode
                 arg.Ncircle
                 arg.isVertex
@@ -1965,7 +2123,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % arg.reset: true if the mathematical structure of the diagram
                 % (e.g. crossings, connections, topology) has changed.
                 % This forces to initialize tables.
-                arg.reset = true;
+                arg.reset = true
             end
             if arg.reset
                 obj.formatFlag=obj.formatFlag0;
@@ -1997,6 +2155,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.virtualFlag=false;
                 obj.headMap=gc2hm(arg.GaussCode,NV);
                 obj.CrossingTable.HeadMap=obj.headMap;
+                % issue: cut
             elseif isfield(arg,"RGaussCode")
                 mode=4;
                 assert(all(isfield(arg,"orientation")))
@@ -2135,6 +2294,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 [~,cutIdx]=cellfun(@(x)ismember(0,x),gc);
                 if any(cutIdx)
                     % If there are cut edges, append 0 to the end of each Gauss code
+                    % issue: where to put 0 (end or start?)
                     isCut=logical(cutIdx);
                     gc(isCut)=arrayfun(@(x,i){x{1}([i+1:end,1:i-1])},gc(isCut),cutIdx(isCut));
                     vlobj.isCut=isCut;
