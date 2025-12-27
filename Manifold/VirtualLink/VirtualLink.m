@@ -121,7 +121,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         function convert(obj,type,arg)
             arguments
                 obj
-                type (1,1) string {mustBeMember(type,["mirror","mirrorMfd","reverse","connectedSum","sum"])}  % move type
+                type (1,1) string {mustBeMember(type,["mirror","mirrorMfd","reverse","connectedSum","sum","cyclic"])}  % move type
                 arg =[]
             end
             switch type
@@ -175,6 +175,21 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     gc=[gc1,gc2];
                     ori=[ori1,ori2];
                     obj.setData(Gauss=gc,orientation=ori);
+                case "cyclic"
+                    % cyclic shift of gauss code
+                    % specify argument in the format [strand idx,move num]
+                    assert(isnumeric(arg)&&numel(arg)==2)
+                    if obj.virtualFlag
+                        [gc,ori]=obj.getRGaussCode();
+                    else
+                        [gc,ori]=obj.getGaussCode();
+                    end
+                    gc{arg(1)}=circshift(gc{arg(1)},arg(2));
+                    if obj.virtualFlag
+                        obj.setData(RGaussCode=gc,orientation=ori);
+                    else
+                        obj.setData(GaussCode=gc,orientation=ori);
+                    end
             end
         end
         function convertKnotCompl(obj)
@@ -245,7 +260,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     else
                         if isequal(V,[0,0,0])
                             arr=1:length(ori);
-                            C=nchoosek(arr,3);
+                            C=binom(arr,3);
                             tbl=table;
                             for j=1:size(C,1)
                                 tbl=[tbl;obj.movable("MP",v=C(j,:))];
@@ -2125,8 +2140,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % This forces to initialize tables.
                 arg.reset = true
             end
+            
             if arg.reset
                 obj.formatFlag=obj.formatFlag0;
+                obj.sageLinked=false;
             end
             mode=0;
             if isfield(arg,"headMap")
@@ -2140,7 +2157,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             elseif isfield(arg,"GaussCode")
                 mode=3;
                 assert(all(isfield(arg,["orientation"])))
-                assert(isa(arg.GaussCode,'cell'))
+                assert(isa(arg.GaussCode,'cell'),"Gauss code must be cell array of double array")
                 NC=sum(cellfun(@length,arg.GaussCode)==0);
                 NV=length(arg.orientation);
                 if arg.reset
@@ -2304,6 +2321,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 hm=nan(NV,2);
                 for i=1:length(gc)
                     cgc=[gc{i},gc{i}(1)];
+                    cgc(isinf(cgc))=[];
                     iscut=cgc(end-1)==0;
                     for j=1:length(cgc)-1-iscut
                         hm(abs(cgc(j)),1+(cgc(j)>0))=cgc(j+1);
