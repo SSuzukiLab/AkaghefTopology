@@ -391,14 +391,17 @@ for i in range(len(comp)):
     # direction of edges are exceptionally inverted
     if len(comp[i])==1:
         coord=[e[::-1] for e in coord]
-    offset_x+=max(xs)-min(xs)+ component_gap
     coords.extend(coord)
     edgeID.extend(ret[1])
-    crossings.update(ret[2])
+    crossing_pos=ret[2]
+    crossing_pos={k: (v[0] + offset_x, *v[1:]) for k, v in crossing_pos.items()}
+    offset_x+=max(xs)-min(xs)+ component_gap
+    # crossing_update=apply_x_offset([ret[2]],offset_x)
+    crossings.update(crossing_pos)
 #  # Special case for the unknot
-for i in range(len(crossings)+1,len(crossings)+1+NCIRCLE):
+for i in range(NCIRCLE):
     coords.append([[[offset_x, 0],[offset_x+1,0], [offset_x+1,1],[offset_x,1]]])
-    edgeID.append(i)
+    edgeID.append(i+len(crossings)+1) # ほんまに？？ edgeよな
     offset_x += 1+component_gap
 pd_code = LINK.pd_code()
 pos_crossings = [crossings[tuple(x)] for x in pd_code]
