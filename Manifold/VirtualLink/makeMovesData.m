@@ -5,11 +5,10 @@
 % NOT SUPPORTED: PS move, CP move, moves with weight, H-move, weight move
 cd(fullfile(TopologyConfig.ProjectPath,'Manifold','VirtualLink'))
 %% 02 move
-T_02_R=table({[-1,-2,2,1]},"inv",[1,-1], ...
-    VariableNames=["gc","param","ori"]);
-T_02_R.weight={[0,-1,0,2; -1,-2,0,0; -2,2,1,0; 2,1,-1,0; 1,0,0,1]};
+T_02_R=table({[-1,-2,2,1]},"inv",[1,-1],{[0,0,1,-1,0]}, ...
+    VariableNames=["gc","param","ori","wei"]);
 T_02_R=modify(T_02_R);
-T_02_L=table({[],[]},"dir",zeros(1,0),VariableNames=["gc","param","ori"]);
+T_02_L=table({[],[]},"dir",zeros(1,0),{0},VariableNames=["gc","param","ori","wei"]);
 T_02_L=modify(T_02_L);
 save("moveData/M02moveData","T_02_R","T_02_L")
 %% MP move
@@ -27,21 +26,8 @@ tmp=rowfun(@VirtualLink.calcReverseStrand,T_MP_L, ...
     InputVariables=["gc","ori","rev"],OutputVariableNames=["gc","ori"]);
 T_MP_L.gc=tmp.gc;
 T_MP_L.ori=tmp.ori;
-T_MP_L.weight=cell(16,1); %format:[v0,v1,weight,isInternal]
-for ii=1:16
-    tmp=[];
-    for jj=1:3
-        cgc=T_MP_L.gc{ii,jj};
-        tmp=[tmp;0,cgc(1),0,2];
-        if length(cgc)==2
-            tmp=[tmp;cgc(1:2),0,0];
-        end
-        tmp=[tmp;cgc(end),0,0,1];
-    end
-    T_MP_L.weight{ii}=tmp;
-end
-T_MP_L.weight(ismember(T_MP_L.param,["A4";"B4"]))={nan};
 T_MP_L=modify(T_MP_L);
+T_MP_L.wei(ismember(T_MP_L.param,["A4";"B4"]),:)={nan};
 %%
 T_MP_R=table(["A";"B";"C";"D"], ...
    [{[1,-3,2],[3],[-1,-2]};
@@ -57,28 +43,12 @@ tmp=rowfun(@VirtualLink.calcReverseStrand,T_MP_R, ...
 InputVariables=["gc","ori","rev"],OutputVariableNames=["gc","ori"]);
 T_MP_R.gc=tmp.gc;
 T_MP_R.ori=tmp.ori;
-T_MP_R.weight=T_MP_L.weight;
-MPWeightData=dictionary(["A2";"B2";"C3";"D3"],  ...
-                    {[-2,1];[2,1];[1,1];[2,-1]});
-for ii=1:16
-    arr=[];
-    for jj=1:3
-        cgc=T_MP_R.gc{ii,jj};
-        arr=[arr;0,cgc(1),0,2];
-        for kk=1:length(cgc)-1
-            arr=[arr;cgc(kk:kk+1),0,0];
-        end
-        arr=[arr;cgc(end),0,0,1];
-    end
-    param=T_MP_R.param{ii};
-    if ismember(param,MPWeightData.keys)
-        arr(arr(:,1)==MPWeightData{param}(1),3)=-MPWeightData{param}(2);
-        arr(arr(:,2)==MPWeightData{param}(1),3)=MPWeightData{param}(2);
-    end
-    T_MP_R.weight{ii}=arr;
-end
-T_MP_R.weight(ismember(T_MP_R.param,["A4";"B4"]))={nan};
 T_MP_R=modify(T_MP_R);
+T_MP_R.wei(T_MP_R.param=="A2",3)={[1,-1,0]};
+T_MP_R.wei(T_MP_R.param=="B2",3)={[1,-1,0]};
+T_MP_R.wei(T_MP_R.param=="C3",2)={[0,1,-1]};
+T_MP_R.wei(T_MP_R.param=="D3",2)={[-1,1,0]};
+T_MP_R.wei(ismember(T_MP_R.param,["A4";"B4"]),:)={nan};
 save("moveData/MPmoveData","T_MP_R","T_MP_L")
 %% CP move obj
 LHS=VirtualLink;
@@ -91,12 +61,14 @@ RHS.convert("mirrorMfd");
 RHS.isCut=true;
 save("moveData/CPmoveObj.mat","LHS","RHS")
 %% CP move
+% weight: not supported
 T_CP_L=table("dir",{[1,-2,2,-3,3,-1]},[-1,-1,-1],VariableNames=["param","gc","ori"]);
 T_CP_L=modify(T_CP_L);
 T_CP_R=table("inv",{[1,2,-5,3,-2,-3,-4,4,-1,5]},[1,1,1,-1,-1],VariableNames=["param","gc","ori"]);
 T_CP_R=modify(T_CP_R);
 save("moveData/CPmoveData","T_CP_L","T_CP_R");
 %% Pure Sliding move
+% weight: not supported
 T_PS_R=combinations({[-1,-2],[-2,-1]},{[1,-1],[-1,1]});
 T_PS_R=table([repmat({[1,2]},4,1),T_PS_R.Var1],[[1;1;1;1],[-1;-1;-2;-2]], ...
     string(1:4)',vertcat(T_PS_R.Var2{:}),repmat(2,4,1), ...
@@ -105,6 +77,7 @@ T_PS_L=table({[],[]},nan(1,2),zeros(1,0),0,VariableNames=["gc","gcFirst","ori","
 T_PS_R=modify(T_PS_R);
 save("moveData/PSmoveData","T_PS_R","T_PS_L")
 %% Bumping MP move
+% weight: not supported
 T_BMP_L=repmat(table(["E1";"F1"],{[1,2],-1,-2;[-1,-2],1,2},[-1,1;1,-1],[1:3;1:3] ...
     ,VariableNames=["param","gc","ori","cap"]),2,1);
 T_BMP_L.param=["E1";"F1";"E2";"F2"];
@@ -134,16 +107,8 @@ function T=modify(T)
     for i=1:height(T)
         T.NV(i)=max([0,T.gc{i,:}]);
     end
-    if ~ismember("weight", T.Properties.VariableNames)
-        T.weight(:) = {nan}; % Initialize weight column if not present
-    else
-        for i=1:height(T)
-            wdata=T.weight{i};
-            if any(isnan(wdata)), continue; end
-            jmiddle=~wdata(:,4);
-            wdata=[wdata(~jmiddle,:);wdata(jmiddle,:)];
-            T.weight{i}=wdata;
-        end
+    if ~ismember("wei", T.Properties.VariableNames)
+        T.wei=cellfun(@(cgc){zeros(1,length(cgc)+1)},T.gc);
     end
     if ~ismember("cap", T.Properties.VariableNames)
         T.cap = repmat(1:size(T.gc,2),height(T),1);

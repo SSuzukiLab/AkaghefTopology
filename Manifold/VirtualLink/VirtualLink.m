@@ -46,7 +46,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         % +/- indicates the edge enters over/under target
         headMap (:,2) double
         RHeadMap (:,2) double % headMap with only real crossings
-        weight (1,:) cell % weight array
+        weightRE (1,:) cell % weight array
     end
     properties (Dependent)
         isVertex (1,:) logical % 1 for virtual crossings, 0 for real crossings
@@ -123,7 +123,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         function convert(obj,type,arg)
             arguments
                 obj
-                type (1,1) string {mustBeMember(type,["mirror","mirrorMfd","reverse","connectedSum","sum","cyclic"])}  % move type
+                type (1,1) string {mustBeMember(type, ...move types
+                    ["mirror","mirrorMfd","reverse","connectedSum","sum","cyclic"])}
                 arg =[]
             end
             switch type
@@ -195,6 +196,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             end
         end
         function convertKnotCompl(obj)
+            % 頂点は一番上から反時計周りに1,2,3,4
             [vgc,ori]=obj.getRGaussCode();
             NV=length(ori);
             dic = dictionary();
@@ -301,7 +303,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                             tbl=table("PS",V,VariableNames=["param","vertex"]);
                         end
                     else
-                        error("PS move is not implemented yet")
+                        warning("PS move is not fully implemented yet")
+                        tbl=table("PS",nan,VariableNames=["param","vertex"]);
+                        return
                     end
                     N=length(V);
                     load("PSmoveData.mat","T_PS_R");
@@ -506,7 +510,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     else
                         load("R1moveData.mat","T_R1_L","T_R1_R");
                         assert(any(arg.param==["1","-1"]),"specify the parameter param=1 or param=-1")
-                        idx=1+(str2double(arg.param)==1); 
+                        idx=1+(str2double(arg.param)==1);
                         [gc,ori,wei]=convertGaussCodeFromEdge(gc,ori,T_R1_L,T_R1_R(idx,:),arg.e,wei);
                     end
                     error("R1 move is not implemented yet")
@@ -531,15 +535,12 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     [gc,ori,wei]=convertGaussCode(gc,ori,T0,T1,V,wei);
                     TE0=obj.REdgeTable;
                     % issue: setGCとして短絡してset
-                    obj.setData(RGauss=gc,orientation=ori);
+                    obj.setData(RGauss=gc,orientation=ori,weight=wei);
                     
-                    if obj.isWeighted % will be deleted
-                        convertWeight(obj,V,TE0,T0,T1)
-                    end
                     
                 case "PS"
                     [gc,ori,wei]=obj.getRGaussCode();
-                    if ~isempty(V)
+                    if ~isfield(arg,"e")
                         idx=double(tbl.param(1));
                         load("PSmoveData.mat","T_PS_R");
                         T0=T_PS_R(idx,:);
@@ -547,8 +548,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         [gc,ori,wei]=convertGaussCode_(gc,ori,T0,T_PS_L,V,wei);
                         obj.setData(RGauss=gc,orientation=ori);
                     else
+                        % Note2510 Disk calculusにも書いたが，想像以上に
+                        % PS moveの実装が難航している．Diskが途切れている場合の遷移規則が分からない．
+                        TRE=obj.calcREdgeTable();
+                        [T,G]=obj.getDiskTable();
                         
-                        error("PS move is not implemented yet")
                     end
                     
                     
@@ -701,74 +705,6 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             end
             function [gc,ori,Vnew,map]=convertGaussCode_(gc,ori,T0,T1,V)
                 % Convert Gauss code based on the move(legacy)
-                % T0: original Gauss code data
-                % T1: new Gauss code data
-                % V: vertices involved in the move
-                % issue: Vnew,map not need
-                NV_=max([gc{:}]);
-                map=struct;
-                if T0.NV<=T1.NV
-                    % if the number of vertices increases after the move
-                    V(T0.NV+1:T1.NV)=NV_+(1:T1.NV-T0.NV);
-                    Mgc01=@(x)x;
-                    ori(V)=T1.ori;
-                    Vnew=V(1:T1.NV);
-                elseif T0.NV>T1.NV
-                    Vsort=sort(V);
-                    vrem=setdiff(1:NV_,Vsort(end-(0:T0.NV-T1.NV-1)));
-                    Mgc01=dictionary(vrem,1:NV_-(T0.NV-T1.NV));
-                    Mgc01(Vsort(1:T1.NV))=Vsort(1:T1.NV);
-                    Mgc01(-Mgc01.keys)=-Mgc01.values;
-                    Mgc01(0)=0;
-                    ori(Vsort(1:T1.NV))=T1.ori;
-                    ori=ori(vrem);
-                    Vnew=Vsort(1:T1.NV);
-                else
-                    Mgc01=@(x)x;
-                    ori(V)=T0.ori;
-                    Vnew=V;
-                end
-                % issue: don't we replace T1.gc by Mt2gc1?and Mtgc0?
-                Mt2gc1=dictionary([1:length(V),-1:-1:-length(V)],[V,-V]);
-                % position of start point of each fragment
-                [startStrandIdx,startVertexIdx]=arrayfun(@(x)findC(x,gc),Mt2gc1(T0.gcFirst));
-                
-                for s=1:length(gc)
-                    % s:current component
-                    % update Gauss code for each component
-                    k=find(startStrandIdx==s);
-                    if isempty(k)
-                        gc{s}=Mgc01(gc{s}); % no related crossings in this component
-                        continue; % no related crossings in this component
-                    end
-                    [~,sortidx]=sort(startVertexIdx(k));
-                    k=k(sortidx);
-                    % gcpart: temporary Gauss code [gc,T1,gc,T1,...,gc] T1 start at vj_(k)
-                    % dic1: dictionary to convert T1.gc to V
-                    % gc01: delete and shift indices of crossings
-                    gcpart=gc{s}(1:startVertexIdx(k(1))-1);
-                    for i=1:length(k)-1
-                        gcpart=[gcpart,Mt2gc1(T1.gc{k(i)}), ...
-                            gc{s}(startVertexIdx(k(i))+length(T0.gc{k(i)}):startVertexIdx(k(i+1))-1)];
-                    end
-                    vjend=startVertexIdx(k(end))+length(T0.gc{k(end)});
-                    gcpart=[gcpart,Mt2gc1(T1.gc{k(end)}),gc{s}(vjend:end)];
-                    if vjend>length(gc{s})+1
-                        % if at the end of the Gauss code, restart from the beginning
-                        gcpart(1:(vjend-length(gc{s})-1))=[];
-                    end
-                    gc{s}=Mgc01(gcpart);
-                end
-                if length(T1.gc)>length(T0.gc)
-                    % if the number of strands increases after the move, add new strands
-                    gc=[gc,cellfun(@(x){Mt2gc1(x)},T1.gc(length(T0.gc)+1:end))];
-                elseif length(T1.gc)<length(T0.gc)
-                    % if the number of strands decreases after the move, remove strands
-                    sj_remove=startStrandIdx(length(T1.gc)+1:end);
-                    % strand to remove must be empty
-                    assert(all(cellfun(@(x)isempty(x),gc(sj_remove))))
-                    gc(sj_remove)=[]; % remove empty strands
-                end
             end
             function [gc,ori,wei]=convertGaussCodeFromEdge(gc,ori,T0,T1,E,wei)
                 % Convert Gauss code based on the move
@@ -791,7 +727,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 ori(end+1)=0;
                 [gc,ori,wei]=convertGaussCode(gc,ori,T0,T1,V_,wei);
             end
-            function [gc,ori,wei]=convertGaussCode(gc,ori,T0,T1,V,wei)
+            function [gc,ori,wei1]=convertGaussCode(gc,ori,T0,T1,V,wei0)
                 % Convert Gauss code based on the move
                 % brash up to handle bumping moves but not completed for
                 % all moves
@@ -800,13 +736,14 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % issue: when seed data contain empty array?
                 NV_=length(ori);
                 map=struct;
+                calcWei=~isempty(wei0);
                 if T0.NV<=T1.NV
-                    % if the number of vertices increases after the move
+                    % if the number of vertices increases or unchanges after the move
                     V(T0.NV+1:T1.NV)=NV_+(1:T1.NV-T0.NV);
                     Mgc01=@(x)x;
                     ori(V)=T1.ori;
                     Vnew=V(1:T1.NV);
-                elseif T0.NV>T1.NV
+                elseif T0.NV>T1.NV % if the number of vertices decreases after the move
                     Vsort=sort(V);
                     vrem=setdiff(1:NV_,Vsort(end-(0:T0.NV-T1.NV-1)));
                     Mgc01=dictionary(vrem,1:NV_-(T0.NV-T1.NV));
@@ -822,38 +759,43 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % position of start point of each fragment
                 [startStrandIdx,startVertexIdx]=arrayfun(@(x)findC(x,gc),Mt2gc0(T0.gcFirst));
                 cap=zeros(2,0);
-                frag={};
                 if length(T1.gc)<length(T0.gc)
                     % if the number of strands decreases after the move, remove strands
                     sj_remove=startStrandIdx(length(T1.gc)+1:end);
                     gc_remove=gc(sj_remove);
                     gc_remove2=cellfun(@(x){Mt2gc0(x)},T0.gc(length(T1.gc)+1:length(T0.gc)));
                     cond=cellfun(@(A,B)length(A)==length(B) && contains(join(string([B B])), join(string(A))) ...
-                        ,gc_remove,gc_remove2);
-                    % strand to remove must be empty
+                        ,gc_remove,gc_remove2); % starnd to remove must match up to cyclic permutation
+                    % must add cond for weighted case
                     assert(all(cond),"cannot apply move")
                 else
                     sj_remove=[];
                 end
-                Ncap=max([T0.cap,T1.cap]);
                 % divide Gauss code into fragment
+                frag={};
+                fragWei={};
+                Ncap=max([T0.cap,T1.cap]);
                 for si=1:length(gc)
                     % s:current component
                     % k:current strand to devide into fragment
                     % update Gauss code for each component
-                    si0s=find(startStrandIdx==si);
+                    si0s=find(startStrandIdx==si); % strands related to the current component
                     
                     if ismember(si,sj_remove)
                         continue; % remove strand to delete
                     elseif isempty(si0s)% no related crossings in this component
                         cap(:,end+1)=[1;1]*(Ncap+si);
                         frag{end+1}=Mgc01(gc{si});
+                        if calcWei
+                            fragWei(end+1)=wei0(si);
+                        end
                         continue; % no related crossings in this component
                     end
                     iscut=gc{si}(end)==0;
                     [~,sortidx]=sort(startVertexIdx(si0s));
                     si0s=si0s(sortidx);
-                    delimeter=[startVertexIdx(si0s),length(gc{si})+1];
+                    % issue: 断片が切れる位置がcyclicにまたがる場合の処理が無い？
+                    delimeter=[startVertexIdx(si0s),length(gc{si})+1]; 
                     % Since the Gauss code is cyclic, if a change wraps from the end to the start,
                     % remove the first Ndel elements to make it work correctly.
                     Ndel=delimeter(end-1)+length(T0.gc{si0s(end)})-(length(gc{si})+1);
@@ -863,7 +805,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     % gc01: delete and shift indices of crossings
                     Nsi0s=length(si0s);
                     fi=length(frag);
-                    frag(end+(1:2*Nsi0s))={[]};
+                    frag(fi+(1:2*Nsi0s))={[]};
                     cap(1:2,end+(1:2*Nsi0s+1))=(Ncap+si)*(~iscut); % when not cut, connect fragment at the end
                     for i=1:Nsi0s
                         si0=si0s(i);
@@ -871,11 +813,23 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         frag{fi+2*i}=Mgc01(gc{si}(delimeter(i)+length(T0.gc{si0}):delimeter(i+1)-1));
                         cap(2*fi+4*(i-1)+(0:3))=[-si0,-si0,T1.cap(si0),T0.cap(si0)];
                     end
+                    if calcWei
+                        fragWei{end+1}=wei0{si}(max(Ndel,0)+1:delimeter(1)-1);
+                        fragWei(fi+(1:2*Nsi0s))={[]};
+                        for i=1:Nsi0s
+                            Twei=T1.wei{si0};
+                            Twei([1,end])=Twei([1,end])-T0.wei{si0}([1,end]);
+                            fragWei{fi+2*i-1}=Twei;
+                            fragWei{fi+2*i}=wei0{si}(delimeter(i)+length(T0.gc{si0}):delimeter(i+1)-1);
+                        end
+                        fragWei{end}(end+1)=0;
+                    end
                 end
                 % table(cap',frag')
-                gc={};
-                f_used=false(1,length(frag));
                 % merge fragments to form Gauss code
+                gc={};
+                wei1={};
+                f_used=false(1,length(frag));
                 while ~all(f_used)
                     cur=find(~f_used,1);
                     next=cur;
@@ -909,7 +863,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 wdata0=T0.weight{1}; % weight data before move
                 wdata1=T1.weight{1}; % weight data after move
                 assert(~isequal(wdata0,nan),"not supported yet");
-                % 
+                %
                 jmiddle=~(wdata0(:,4));  % indices of crossings remaining unchanged
                 jE=zeros(size(wdata0,1),1); % edge indices in TE0 corresponding to wdata0
                 for i=1:size(wdata0,1) % find the edge indices from data(:,1:2)
@@ -1073,14 +1027,26 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         %     ret=obj.RCrossingTable.Orientation';
         % end
         function set.isCut(obj,arg)
-            error("not use") %実装しようと思うと意外と複雑
+            flag=strings(0);
+            if obj.formatFlag("G")
+                gc=obj.getGaussCode();
+                obj.GaussCode=helperCut(gc,arg(:)');
+                flag(end+1)="G";
+            end
+            if obj.formatFlag("VG")
+                gc=obj.getRGaussCode();
+                obj.RGaussCode=helperCut(gc,arg(:)');
+                flag(end+1)="VG";
+            end
+            obj.formatFlag=obj.formatFlag0;
+            obj.formatFlag(flag)=true;
         end
         function ret=get.isCut(obj)
             if obj.formatFlag("TS")
                 ret=obj.StrandTable.isCut';
-            else
+            else %issue: isCut has size (1,:)
                 gc=obj.getGC();
-                ret=cellfun(@(c)~isempty(c)&&c(end)==0,gc).';
+                ret=cellfun(@(c)~isempty(c)&&c(end)==0,gc);
             end
         end
         
@@ -1265,10 +1231,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 TRE.Position{ei}=connectPolylines(TE.Position(idx));
             end
             obj.REdgeTable=TRE;
-            % [~,ori]=obj.getPDCode;
-            % isVertex=logical(ori);
-            % TRE=
-            % TRE.Position=cellfun(@(e){connectPolylines(TE.Position(E2idx(e)))},TRE.arc);
+            obj.formatFlag("pos")=true;
             function ret=uvec(v)
                 ret=(v(2)-v(1))/abs(v(2)-v(1));
             end
@@ -1325,7 +1288,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 PEsorted=PE(eidx);
                 C=cellfun(@(e)e(1:end-1),PEsorted,UniformOutput=false);
                 C=[C{:},PEsorted{end}(end)];
-            end 
+            end
         end
         function [C3,P,Cr,C4]=assignPositions2(obj,gap)
             % legacy code
@@ -1374,7 +1337,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.calcVG2G;
             end
             if obj.formatFlag("G")
-                gausscode=obj.GaussCode.';
+                gausscode=obj.GaussCode;
                 orientation=obj.orientation;
             else
                 SW=SageWrapper.H;
@@ -1388,7 +1351,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             end
             gausscode=helperCut(gausscode,false(1,~cutsufix*length(gausscode)));
             if obj.isWeighted
-                weight=obj.weight;
+                weight=obj.weightRE;
             else
                 weight=cell(1,0);
             end
@@ -1411,28 +1374,26 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     GaussCode=obj.GaussCode;
                     orientation=obj.orientation;
                 else
-                    [GaussCode,orientation]=obj.getGaussCode();
+                    [GaussCode,orientation]=obj.getGaussCode(true);
                 end
-                isCut=cellfun(@(x)~isempty(x)&&x(end)==0,GaussCode);
-                rc=find(orientation);
-                obj.RCrossingMap=rc; %?
-                dic=dictionary(1:length(orientation),0);
-                dic(rc)=1:length(rc);
-                dic(-dic.keys)=-dic.values;
-                dic(0)=0;
-                for i = 1:length(GaussCode)
-                    gc=dic(GaussCode{i});
-                    GaussCode{i} = [gc(gc~=0),zeros(1,cutsufix&isCut(i))]; % Remove R crossings
+                filter_rv=find(orientation~=0);
+                orientation=orientation(filter_rv);
+                filter_rv=[-filter_rv,filter_rv,zeros(1,cutsufix)];
+                for si=length(GaussCode)
+                    GaussCode{si}=GaussCode{si}(ismember(GaussCode{si},filter_rv));
                 end
-                orientation=orientation(rc);
+                ;
                 obj.RGaussCode=GaussCode;
                 obj.ROrientation=orientation;
                 obj.formatFlag("VG")=true;
-                if obj.isWeighted
-                    weight=obj.weight;
-                else
-                    weight=cell(1,0);
-                end
+            end
+            if ~cutsufix
+                GaussCode=cellfun(@(x){x(1:end-(~isempty(x)&&x(end)==0))},GaussCode);
+            end
+            if obj.isWeighted
+                weight=obj.weightRE;
+            else
+                weight=cell(1,0);
             end
         end
         function [RPD,vori,Nc]=getRPDCode(obj)
@@ -1470,7 +1431,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         % Process each crossing in this strand
                         for i = 1:length(strand)-1
                             v = strand(i);
-                            pd2(abs(v),[1,3]+(v>0)) = strandEdges(i+[0,1]);
+                            if v~=0
+                                pd2(abs(v),[1,3]+(v>0)) = strandEdges(i+[0,1]);
+                            else
+                                
+                            end
                         end
                     end
                     if any(isnan(pd2(:)))
@@ -1478,7 +1443,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         warning('possible issue with virtual Gauss code');
                     end
                     % Convert to PD code format
-                    j=find(vori>0);
+                    j=vori>0;
                     RPD=pd2;
                     RPD(j,[4,2])=RPD(j,[2,4]);
                     
@@ -1563,13 +1528,12 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % dic: the orientation of a vertex -> the edge correspondence of the dual tetrahedron
             persistent dic
             if isempty(dic) %setup dictionary for connection of disk boundaries
-                dp([1,2,4,5,9,12,7,6,8,11,10,3])=[1:6,1:6];
-                dm([1,2,4,5,9,12,7,10,3,11,6,8])=[1:6,1:6];
-                
-                dic=dictionary([1,-1],{dp,dm});
+                dp([1,2,4,5,9,12, 7,6,8,11,10,3])=[1:6,1:6]; % unite at joint
+                dm([1,2,4,5,9,12, 7,10,3,11,6,8])=[1:6,1:6];
+                dic=dictionary([1,-1],{dp,dm}); % dp,dm: port of cycle bnd
             end
             TRE=obj.calcREdgeTable;
-            G=digraph();
+            G=digraph(); % connection of joint
             [PD,ori,Ncircle]=obj.getRPDCode();
             edges=unique(PD(:));
             NE=length(edges); % ignoring Ncircle
@@ -1577,29 +1541,70 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 mat2cell([eye(NE);-eye(NE)],ones(2*NE,1),NE));
             tmp=[0;1;0;0;1;0]*(ori>0)+[0;0;1;0;0;1]*(ori<0);
             % G: Node: an edge of a tetrahedron, Edge: a face of a tetrahedron
-            G=G.addnode(table(tmp(:),Var="Ndot"));
+            NV=length(ori);
+            G=G.addnode(table((1:numel(tmp))',repmat((1:6)',NV,1),repelem((1:NV)',6,1) ...
+                ,tmp(:),zeros(6*NV,1),Var=["jointID","jointPos","vertex","Ndot","isEnd"]));
+            G_E=table;
+            K=0; % index of cut joint
             for ei=1:height(TRE) % connect edges of G
                 v=TRE.Crossing(ei,:);
-                tmp=6*(abs(v)-1)+ ...
-                    [dic{ori(abs(v(1)))}((1:3)+6+3*(v(1)>0));
-                    dic{ori(abs(v(2)))}((1:3)+3*(v(2)>0))].';
-                G=G.addedge(tmp([1,2,6]),tmp([4,5,3]),ei*[1,1,-1]);
+                if all(v~=0)
+                    tmp=6*(abs(v)-1)+ ...
+                        [dic{ori(abs(v(1)))}((1:3)+6+3*(v(1)>0));
+                        dic{ori(abs(v(2)))}((1:3)+3*(v(2)>0))].';
+                    G_E_C=table([tmp([1;2;6]),tmp([4;5;3])],ei*[1;1;-1],[-1;1;0]);
+                elseif all(v==0)
+                    error('not implemented: both cut edges');
+                elseif v(1)==0 % cut at the beginning
+                    tmp=[6*NV+K*3+(1:3).',6*(abs(v(2))-1)+dic{ori(abs(v(2)))}((1:3)+3*(v(2)>0)).'];
+                    tmp(3,:)=tmp(3,[2,1]);
+                    G_E_C=table(0+tmp,ei*[1;1;-1],[-1;1;0]);
+                    K=K+1;
+                elseif v(2)==0 % cut at the end
+                    tmp=[6*(abs(v(1))-1)+dic{ori(abs(v(1)))}((1:3)+6+3*(v(1)>0)).',6*NV+K*3+(1:3).'];
+                    tmp(3,:)=tmp(3,[2,1]);
+                    G_E_C=table(0+tmp,ei*[1;1;-1],[-1;1;0]);
+                    K=K+1;
+                end
+                G_E=[G_E;G_E_C];
             end
-            [cycles,edges_u]=G.allcycles; % find all cycles (disk) in G
-            edges_s=cellfun(@(c){G.Edges.Weight(c)'},edges_u);
-            % nodes=cellfun(@(c){G.Edges.EndNodes(c,1)'},cycles);
-            Ndots=cellfun(@(c)sum(G.Nodes.Ndot(c)),cycles);
-            tbl=table(cycles,edges_s,Ndots);
-            tmp=cellfun(@(c){sum(vertcat(vec{c}),1)},edges_s);
+            G=G.addnode(table(6*NV+(1:K*3)',repmat((1:3)',K,1), ...
+                repelem((NV+1:NV+K)',3,1),zeros(K*3,1),ones(K*3,1), ...
+                'VariableNames',["jointID","jointPos","vertex","Ndot","isEnd"]));
+            G_E.Properties.VariableNames=["EndNodes","edge_s","disk"];
+            G=G.addedge(G_E);
+            tbl=calcDiskTable(G);
+            tmp=cellfun(@(c){sum(vertcat(vec{c}),1)},tbl.edges_s);
             % dx: coboundary of disk?  cp: Euler cochain
             tbl.delta=vertcat(tmp{:});
             tbl.cp=1-tbl.Ndots/2;
+            function disktable=calcDiskTable(G)
+                compIdx=conncomp(G,'Type','weak');
+                % G_E=G.Edges;
+                NC=max(compIdx);
+                C=cell(NC,5);
+                for cid=1:NC
+                    subG=subgraph(G,cid==compIdx);
+                    C{cid,5}=height(subG.Edges)==height(subG.Nodes); % is cycle
+                    if C{cid,5}
+                        [path_v,path_e]=subG.allcycles;
+                        C(cid,1:4)={cid,subG.Nodes.jointID(path_v{1}).', ...
+                            subG.Edges.edge_s(path_e{1}).',sum(subG.Nodes.Ndot)};
+                    else
+                        [~,subG]=toposort(subG);
+                        C(cid,1:4)={cid,subG.Nodes.jointID.', ...
+                            subG.Edges.edge_s.', sum(subG.Nodes.Ndot)};
+                    end
+                end
+                disktable=cell2table(C,VariableNames=["ID","paths","edges_s","Ndots","isCycle"]);
+
+            end
         end
         function calcVG2G(obj)
             %  calcVG2G converts the virtual Gauss code to the real Gauss code
             % add virtual crossings in order to make the objects valid in visualization
             % issue: just after VG2G, must set sage link (for consistency)
-            vgc=obj.RGaussCode;
+            vgc=obj.RGaussCode; 
             vori=obj.ROrientation;
             [gc,ori]=vg2g(vgc,vori);
             obj.setData(reset=false,GaussCode=gc,orientation=ori)
@@ -1630,9 +1635,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 % If the number of strands has changed, update the table
                 obj.StrandTable = repmat(obj.StrandTableInit, length(strands),1);
             end
-            obj.StrandTable.isCut=cellfun(@(c)~isempty(c)&&c(end)==0,gc);
+            obj.StrandTable.isCut=cellfun(@(c)~isempty(c)&&c(end)==0,gc).';
             obj.StrandTable.Edges = strands; % Assign the strands to the table
-            obj.StrandTable.Crossings =gc; % Assign the vertices to the table
+            obj.StrandTable.Crossings =gc.'; % Assign the vertices to the table
             TS=obj.StrandTable;
         end
         function [weight0,weight1,Hperp]=calcWeight(obj,set)
@@ -1652,7 +1657,8 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             tbl=obj.getDiskTable;
             SW=SageWrapper.H;
             dx=SW.toStr(tbl.delta,2);
-            cp=SW.toStr(-tbl.cp,1);
+            indexOfDisk=0; % at debug mode, modify this
+            cp=SW.toStr(indexOfDisk-tbl.cp,1);
             hmoves=obj.getMatrixHMove';
             HM=SW.toStr(hmoves,2); % H-move matrix
             cmd=[
@@ -1685,13 +1691,13 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             weight1=str2num(string(C{2}));
             D=str2num(string(C{3}));
             Hperp=str2num(string(C{4}));
-            
             if ~isempty(D)&&D(1)~=0
                 warning("weight solution space has torsion: %s",mat2str(D));
             end
             if isempty(weight1)
                 weight1=zeros(0,size(tbl.delta,2));
             end
+            weight0=minimizeWeightSolution(weight0,weight1);
             if set
                 obj.setWeight(weight0,"REdge")
             end
@@ -1699,6 +1705,31 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % V_=null([HMoveM;kerMc],"rational"); % V_:complement space of H in kerM
             %     [~,den]=numden(sym(V_(:,i)));
             %     den=lcm(den);
+            function [sol, x,val] = minimizeWeightSolution(W, H)
+                % We want to minimize || W + xH ||^2.
+                % Refinement: Coordinate Descent (Local Search)
+                x_real = -W / H;
+                x = round(x_real);
+                val = sum((W+x*H).^2);
+                improved = true;
+                K = length(x);
+                while improved
+                    improved = false;
+                    for k = 1:K
+                        % Check neighbors: x[k] + 1 and x[k] - 1
+                        dif=zeros(2,K);
+                        dif(:,k)=[1;-1];
+                        tmp_val=sum((W+(x+dif)*H).^2,2);
+                        idx=find(tmp_val<val,1);
+                        if ~isempty(idx)
+                            x = x+dif(idx,:);
+                            val = tmp_val(idx);
+                            improved = true;
+                        end
+                    end
+                end
+                sol=W+x*H;
+            end
         end
         function ret=calcSpec(obj,arg,param)
             arguments
@@ -1864,7 +1895,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             if obj.formatFlag("TRE")
                 TRE=obj.REdgeTable;
             else
-                NE=sum(cellfun(@length,gc))+sum(cellfun(@isempty,gc));
+                NE=sum(cellfun(@length,gc))+length(gc)+sum(cellfun(@isempty,gc));
                 TRE=repmat(obj.EdgeTableInit,NE,1); % warning:NE is not the exact height
             end
             TRE.Arc(:)={[]};
@@ -1940,8 +1971,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.calcVG2G;
             end
             obj.calcTables([true,true]);
-            
-            [PE,V]=obj.calcPositions(arg);
+            if ~obj.formatFlag("pos")
+                [PE,V]=obj.calcPositions(arg); %PE使わん？
+            else
+                V=obj.CrossingTable.Position;
+            end
             ori=obj.orientation;
             if arg.virtual
                 % obj.calcRCrossingTable;
@@ -2121,18 +2155,20 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             end
             disp('<a href="matlab:help VirtualLink">Virtual Link object</a>:')
             if type==""&&obj.formatFlag("G")||type=="G"
-                fprintf("Gauss Code:")
+                fprintf("Gauss Code:");
                 dispC(obj.GaussCode);
-                fprintf("Orientation:")
-                disp("["+join(string(obj.orientation),", ") + "]")
+                fprintf("Orientation:[%s]\n",join(string(obj.orientation),", "))
             elseif type==""&&obj.formatFlag("VG")||type=="VG"
                 fprintf("Virtual Gauss Code:")
                 dispC(obj.RGaussCode);
-                fprintf("Orientation:")
-                disp("["+join(string(obj.ROrientation),", ") + "]")
+                fprintf("Orientation:[%s]\n",join(string(obj.ROrientation),", "))
             elseif type==""&&obj.formatFlag("PD")||type=="PD"
                 fprintf("PD Code:")
                 disp(mat2str(obj.PDCode))
+            end
+            if obj.isWeighted
+                fprintf("Weight:");
+                dispC(obj.weightRE)
             end
         end
         function disp2(obj)
@@ -2155,7 +2191,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         end
         function disp4(obj)
             T=obj.unicodeArt(true);
-            T.weight=double(T.weight);
+            T.weightRE=double(T.weightRE);
             disp(T)
         end
         function disp5(obj)
@@ -2378,28 +2414,41 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             switch type
                 case "REdge"
                     if ~obj.formatFlag("TRE")&&isa(weight,"cell")
-                        obj.weight=weight;
+                        obj.weightRE=weight;
                     elseif isa(weight,"cell")
-                        obj.weight=weight;
+                        obj.weightRE=weight;
                         obj.calcREdgeTable;
                         gc=obj.getRGaussCode;
                         for si=1:length(gc)
                             cgc=gc{si}; % issue: if unknot, cgc:empty, TRE.Crossing=[ek,ek] (ek:edge index)
-                            [~,idx]=ismember([cgc([end,1:end-1]);cgc].',obj.REdgeTable.Crossing,'rows');
+                            [~,idx]=ismember([circshift(cgc,1);cgc].',obj.REdgeTable.Crossing,'rows');
                             obj.REdgeTable.Weight(idx)=weight{si};
                         end
                     elseif isa(weight,"table")
                         obj.calcREdgeTable;
                         [~,idx]=ismember(weight.Crossing,obj.REdgeTable.Crossing,'rows');
                         obj.REdgeTable.Weight(idx)=weight.Weight;
+                        helperSetWei(obj)
                     elseif isa(weight,"double")
                         obj.calcREdgeTable;
                         obj.REdgeTable.Weight=weight(:);
+                        helperSetWei(obj)
                     end
                 otherwise
                     error("Weight for %s is not supported",type)
             end
             obj.isWeighted=true;
+            function helperSetWei(obj)
+                gc_=obj.getRGaussCode;
+                TRE_=obj.REdgeTable;
+                weightCell=cell(size(gc_));
+                for si_=1:length(gc_)
+                    cgc_=gc_{si_}; 
+                    [~,idx_]=ismember([circshift(cgc_,1);cgc_].',TRE_.Crossing,'rows');
+                    weightCell{si_}=TRE_.Weight(idx_);
+                end
+                obj.weightRE=weightCell;
+            end
         end
     end
     methods(Static)
@@ -2462,9 +2511,9 @@ function gc=helperCut(gc,isCut)
     % and gc code is stored after removing 0
     % cut flag is stored in obj.isCut
     if isempty(isCut), return; end
-    isCutGC=cellfun(@(x)~isempty(x)&&x(end)==0,gc).';
+    isCutGC=cellfun(@(x)~isempty(x)&&x(end)==0,gc);
     for j=find(xor(isCut,isCutGC))
-        gc{j}=gc{j}([1:end-isCutGC(j),zeros(1,1-isCutGC(j))]);
+        gc{j}=[gc{j}(1:end-isCutGC(j)),zeros(1,1-isCutGC(j))];
     end
 end
 function [idxC,idx]=findC(key,arr)
@@ -2508,7 +2557,10 @@ function [gc,ori]=vg2g(rgc,ro)
     regF=graph;
     for si=1:length(rgc)
         % loop through each strand
-        cgc=[rgc{si} 0];
+        cgc=rgc{si};
+        if isempty(cgc)||isequal(cgc,0), continue; end
+        iscut=cgc(end)==0; 
+        cgc=[cgc(1:end-iscut),0]; % delete cut suffix
         if isscalar(cgc)
             rgc{si}=[];
             continue
