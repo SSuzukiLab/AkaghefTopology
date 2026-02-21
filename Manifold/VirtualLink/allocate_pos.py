@@ -110,7 +110,9 @@ def allocate_positions(self,bendingNumbers):
         s = [values[2 * i] - values[2 * i + 1] for i in range(len(edges))]
     else:
         s = bendingNumbers
-    # print("bending numbers", s)
+    if PRINT_BENDING_NUMBERS:
+        print("bending numbers", s)
+        
     
     # segments represents the different parts of the previous edges after bending
     segments = {e: [(e, i) for i in range(abs(s[edges.index(e)]) + 1)]

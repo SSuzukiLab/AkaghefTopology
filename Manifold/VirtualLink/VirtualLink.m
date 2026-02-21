@@ -47,11 +47,13 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         headMap (:,2) double
         RHeadMap (:,2) double % headMap with only real crossings
         weightRE (1,:) cell % weight array
+        typeStrand (1,:) char {mustBeMember(typeStrand,'lop')}
     end
     properties (Dependent)
         isVertex (1,:) logical % 1 for virtual crossings, 0 for real crossings
         sageName (1,1) string % variable name in Sage
         sageOrientation (1,:) double % orientation in Sage
+        odata
     end
     
     properties(Constant)
@@ -84,7 +86,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             })
         
         StrandTableInit =table(...
-            nan,missing, {nan}, {nan}, {nan},{nan},false,{nan}, ...
+            nan,missing, {nan}, {nan}, {nan},{nan},false,{nan},categorical("o"), ...
             VariableNames = {
             'ID',           % Strand ID (component index)
             'Label',        % Optional strand label (e.g., 'L1')
@@ -94,6 +96,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             'Weights',      % Optional weight for edges
             'isCut',        % true if the strand is cut
             'Color'         % Optional color
+            'Type'          % Type of strand 'l','o','p'
             })
         
         RegionTableInit =table(...
@@ -195,31 +198,82 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     end
             end
         end
-        function convertKnotCompl(obj)
-            % 頂点は一番上から反時計周りに1,2,3,4
-            [vgc,ori]=obj.getRGaussCode();
-            NV=length(ori);
-            dic = dictionary();
-            for i = 1:NV
-                dic{i} = 4*(i-1) + [1,2];
-                if ori(i)>0
-                    dic{-i} = -4*(i-1) - [2,3];
-                else
-                    dic{-i} = -4*(i-1) - [4,1];
+        function convertKnotCompl(obj,ver)
+            % convertKnotCompl Convert knot diagram to knot complement o-graph
+            % The conversion rule is as follows:
+            % GC: permutation of [1:NV, -(1:NV)], ori:{-1,1}^NV
+            % new vertex IDs:1~4*NV
+            % new GC: sign(v)*(4*(|v|-1)+1+mod([0,1]+ 2*inv+ (v<0)*(1+2*(ori(|v|)<0)) ,4))
+            % new ori: repmat([-1,1,-1,1],1,NV)
+            % inv=0 or 1 (inverted o-strand)
+            % *: over strand
+            % positive(+) crossing:
+            %  ∧   ∧*
+            %   \ /
+            %    X
+            %   / \
+            % ↓↓↓↓↓↓↓↓↓↓
+            %  ∨ ∧   ∨ ∧
+            %   \ \3/ /
+            %    \ X /
+            %   4 X X 2
+            %    / X \
+            %   / /1\ \
+            % 
+            % negative(-) crossing:
+            %  ∧   ∧*
+            %   \ /
+            %    X
+            %   / \
+            % ↓↓↓↓↓↓↓↓↓↓
+            %  ∨ ∧   ∨ ∧
+            %   \ \2/ /
+            %    \ X /
+            %   3 X X 1
+            %    / X \
+            %   / /4\ \
+            % 
+            % 1,3:+ crossing, 2,4:- crossing
+            % inverted o-strand is located at left side of foward strand
+            if nargin==1, ver=2; end
+            if ver==1 % issue: legacy code knot complement
+                [vgc,ori]=obj.getRGaussCode();
+                NV=length(ori);
+                dic = dictionary();
+                for i = 1:NV
+                    dic{i} = 4*(i-1) + [1,2];
+                    if ori(i)>0
+                        dic{-i} = -4*(i-1) - [2,3];
+                    else
+                        dic{-i} = -4*(i-1) - [4,1];
+                    end
                 end
-            end
-            vgc2=cellfun(@(x) {horzcat(dic{x})},vgc);
-            for i = 1:NV
-                dic{i} = 4*(i-1) + [3,4];
-                if ori(i)>0
-                    dic{-i} = -4*(i-1) - [4,1];
-                else
-                    dic{-i} = -4*(i-1) - [2,3];
+                vgc2=cellfun(@(x) {horzcat(dic{x})},vgc);
+                for i = 1:NV
+                    dic{i} = 4*(i-1) + [3,4];
+                    if ori(i)>0
+                        dic{-i} = -4*(i-1) - [4,1];
+                    else
+                        dic{-i} = -4*(i-1) - [2,3];
+                    end
                 end
+                vgc2=[vgc2;cellfun(@(x) {horzcat(dic{fliplr(x)})},vgc)];
+                ori2=repmat([-1,1,-1,1],1,NV);
+                obj.setData(Gauss=vgc2,orientation=ori2);
+            else
+                [vgc0,ori0]=obj.getRGaussCode(false); % issue: RGC? knot compl?
+                isCut0=obj.isCut;
+                NV=length(ori0);
+                V0=[1:NV,-NV:-1];
+                fV=@(v,inv)sign(v)*(4*(abs(v)-1)+1+mod([0,1]+2*inv+(v<0)*(1+2*(ori0(abs(v))<0)),4));
+                dic=dictionary(V0,arrayfun(@(x){fV(x,false)},V0));
+                vgc_fwd=cellfun(@(x){horzcat(dic{x})},vgc0);
+                dic=dictionary(V0,arrayfun(@(x){fV(x,true)},V0));
+                vgc_inv=cellfun(@(x){horzcat(dic{fliplr(x)})},vgc0);
+                ori=repmat([-1,1,-1,1],1,NV);
+                isCut=repmat(isCut0,1,2);
+                obj.setData(RGauss=[vgc_fwd,vgc_inv],orientation=ori,cut=isCut);
             end
-            vgc2=[vgc2;cellfun(@(x) {horzcat(dic{fliplr(x)})},vgc)];
-            ori2=repmat([-1,1,-1,1],1,NV);
-            obj.setData(Gauss=vgc2,orientation=ori2);
         end
         function tbl=movable(obj,type,argstr,arg)
             % MOVABLE Get a table of valid moves for the specified type
@@ -958,6 +1012,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         function ret=get.sageName(obj)
             ret="Link"+string(mod(keyHash(obj),1000));
         end
+        function ret=get.odata(obj)
+            [gc,ori]=obj.getGC();
+            ret={gc,ori};
+        end
         function ret=get.isVertex(obj)
             % Return a logical array indicating virtual crossings
             ret=~logical(obj.orientation);
@@ -1121,6 +1179,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             cmd=readlines(fullfile(TopologyConfig.ProjectPath, ...
                 'Manifold','VirtualLink','allocate_pos.py'));
             cmd=strrep(cmd,"LINK",Pname);
+            cmd=strrep(cmd,"PRINT_BENDING_NUMBERS",string(strct.printBendingNumbers));
             cmd=strrep(cmd,"BENDING_NUMBERS",bendingNumbers);
             cmd=strrep(cmd,"COMPONENT_GAP",string(gap));
             cmd=strrep(cmd,"NCIRCLE",string(obj.Ncircle));
@@ -1638,6 +1697,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             obj.StrandTable.isCut=cellfun(@(c)~isempty(c)&&c(end)==0,gc).';
             obj.StrandTable.Edges = strands; % Assign the strands to the table
             obj.StrandTable.Crossings =gc.'; % Assign the vertices to the table
+            obj.StrandTable.Type=categorical(string(obj.typeStrand.'));
             TS=obj.StrandTable;
         end
         function [weight0,weight1,Hperp]=calcWeight(obj,set)
@@ -1751,10 +1811,18 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     if isempty(param), param="group"; end
                     vname=param;
                     [RPD,ori,NC]=obj.getRPDCode;
+                    obj.calcCrossingTable();
+                    TS=obj.calcStrandTable(); % issue: PDcodeがTC依存なので，calcTCを呼ばないとTSが計算できない
+
+                    
                     NE=max(RPD,[],"all")+NC;
                     gen=join("e"+(1:NE),",");
                     rel1=sprintf("e%d/e%d,",RPD(:,[1,3]).');
-                    rel2=sprintf("e%d*e%d/e%d,",RPD(:,[4,1,2])');
+                    edgeData=RPD(:,[4,1,2,3]).';
+                    edge_suture_classification=horzcat(TS.Edges{TS.Type=='p'});
+                    suture_flag=ismember(edgeData(4,:),edge_suture_classification);
+                    edgeData([1,2],suture_flag)=edgeData([2,1],suture_flag);
+                    rel2=sprintf("e%d*e%d/e%d,",edgeData(1:3,:));
                     SW=SageWrapper.H;
                     cmd(1)=sprintf("%s = FreeGroup(%d)",vname,NE);
                     cmd(2)=sprintf("%s=%s.gens()",gen,vname);
@@ -1774,7 +1842,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % must execute in Execution repository
             
             if isa(hopfalg,'VectAlg')
-                assert(obj.isWeighted)
+                isWei=obj.isWeighted;
                 % assume that Tp,Tm,S are already calc right after declaration
                 Tp=hopfalg.getSC('Tp');
                 Tm=hopfalg.getSC('Tm');
@@ -1782,20 +1850,27 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.calcREdgeTable;
                 [~,ori]=obj.getRGaussCode();
                 TRE=obj.REdgeTable;
-                expr1=repmat("Tp",1,length(ori));
-                expr1(ori<0)="Tm";
-                for i=1:length(ori)
-                    expr1(i)=expr1(i)+sprintf("{%s}",join(string(4*(i-1)+(1:4)),","));
-                end
                 expr2=repmat("(S^%d){%d,%d}",1,height(TRE));
                 M=abs(TRE.Crossing)*4+(TRE.Crossing>0)-[1,3];
-                W=2*TRE.Weight;
+                if isWei
+                    W=2*TRE.Weight;
+                else
+                    W=zeros(size(TRE.Weight));
+                end
+                S0flag=W==0; % To reduce time, delete S^0=id factor
                 for i=1:height(TRE)
                     expr2(i)=sprintf(expr2(i),W(i),M(i,1),M(i,2));
                 end
+                expr2=expr2(~S0flag);
+                S0dic=dictionary([M(S0flag,1);M(~S0flag,1);M(:,2)],[M(S0flag,2);M(~S0flag,1);M(:,2)]);
+                expr1=repmat("Tp",1,length(ori));
+                expr1(ori<0)="Tm";
+                for i=1:length(ori)
+                    expr1(i)=expr1(i)+sprintf("{%s}",join(string(S0dic(4*(i-1)+(1:4))),","));
+                end
                 expr=join([expr1,expr2]);
                 ret=calcTensorExpression(expr,[]);
-            elseif strcmp(hopfalg,"UR")
+            elseif strcmp(hopfalg,"UR")||isa(hopfalg,'URDiagram')
                 D=VL2URD(obj);
                 b1=obj.calcSpec("b1");
                 % D.simplify2;
@@ -1966,6 +2041,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 arg.componentGap (1,1) double = 1 % gap between components
                 % how many times to bend the edge to the left
                 arg.bendingNumbers (1,:) cell = {} %WARNING: this may freeze the program
+                arg.printBendingNumbers =false
             end
             if obj.virtualFlag
                 obj.calcVG2G;
@@ -2141,7 +2217,9 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         end
         
         function disp(obj)
-            feval("disp"+ TopologyConfig.H.VL.disp,obj);
+            for i=1:numel(obj)
+                feval("disp"+ TopologyConfig.H.VL.disp,obj(i));
+            end
         end
         function disp0(obj)
             % Default display
@@ -2242,6 +2320,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 arg.table
                 arg.odata
                 arg.weight
+                arg.typeStrand (1,:) char=''
                 % arg.reset: true if the mathematical structure of the diagram
                 % (e.g. crossings, connections, topology) has changed.
                 % This forces to initialize tables.
@@ -2323,7 +2402,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     "Knots().from_table(%s).pd_code()",data));
                 data=cellfun(@(x){double(x).'},cell(data));
                 data=[data{:}].';
-                obj.setData(PDCode=data);
+                obj.setData(PDCode=data,typeStrand=arg.typeStrand);
                 % disp(data)
                 return
             elseif isfield(arg,"odata")
@@ -2332,7 +2411,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     % 出力: obj.GaussCode, obj.orientation を復元
                     
                     obj.setData(RGaussCode=arg.odata{1}, ...
-                        orientation=arg.odata{2});
+                        orientation=arg.odata{2},typeStrand=arg.typeStrand);
                 catch ME
                     assert(isa(arg.odata,"cell")&& ...
                         all(cellfun(@(x)isa(x,"double"),arg.odata{1})) ...
@@ -2387,7 +2466,12 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.setSageLink()
             end
             % obj.Ncircle=NC;
-            
+            if isempty(arg.typeStrand)
+                arg.typeStrand=repmat('o',1,length(obj.getGC));
+            end
+            if arg.reset
+                obj.typeStrand=arg.typeStrand;
+            end
             function hm=pd2hm(pd,ori)
                 % Convert PD code to head map
                 idx=find(ori>=0);
