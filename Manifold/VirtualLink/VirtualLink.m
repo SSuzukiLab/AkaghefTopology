@@ -164,11 +164,20 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                         gc2=gc2([idx:end,1:idx-1]);
                     end
                     NV=length(ori);
-                    arr=[-2,-1,1,4,-4,-3,3,2];
-                    arr=sign(arr)*NV+arr;
-                    gc{arg(1,1)}=[arr(1:4),gc2,arr(5:8),gc1];
-                    gc(arg(1,2))=[];
-                    ori=[ori,-1,1,-1,1];
+                    is_old_ver=false;
+                    if is_old_ver
+                        arr=[-2,-1,1,4,-4,-3,3,2];
+                        arr=sign(arr)*NV+arr;
+                        gc{arg(1,1)}=[arr(1:4),gc2,arr(5:8),gc1];
+                        gc(arg(1,2))=[];
+                        ori=[ori,-1,1,-1,1];
+                    else
+                        arr=[+2,+1,-1,-4;+4,+3,-3,-2];
+                        arr=sign(arr)*NV+arr;
+                        gc{arg(1,1)}=[gc1,arr(1,1:4),gc2,arr(2,1:4)];
+                        gc(arg(1,2))=[];
+                        ori=[ori,-1,1,-1,1];
+                    end
                     obj.setData(Gauss=gc,orientation=ori);
                 case "sum"
                     assert(isa(arg,"VirtualLink"))
@@ -219,7 +228,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             %   4 X X 2
             %    / X \
             %   / /1\ \
-            % 
+            %
             % negative(-) crossing:
             %  ∧   ∧*
             %   \ /
@@ -232,7 +241,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             %   3 X X 1
             %    / X \
             %   / /4\ \
-            % 
+            %
             % 1,3:+ crossing, 2,4:- crossing
             % inverted o-strand is located at left side of foward strand
             if nargin==1, ver=2; end
@@ -849,7 +858,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     [~,sortidx]=sort(startVertexIdx(si0s));
                     si0s=si0s(sortidx);
                     % issue: 断片が切れる位置がcyclicにまたがる場合の処理が無い？
-                    delimeter=[startVertexIdx(si0s),length(gc{si})+1]; 
+                    delimeter=[startVertexIdx(si0s),length(gc{si})+1];
                     % Since the Gauss code is cyclic, if a change wraps from the end to the start,
                     % remove the first Ndel elements to make it work correctly.
                     Ndel=delimeter(end-1)+length(T0.gc{si0s(end)})-(length(gc{si})+1);
@@ -1656,14 +1665,14 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     end
                 end
                 disktable=cell2table(C,VariableNames=["ID","paths","edges_s","Ndots","isCycle"]);
-
+                
             end
         end
         function calcVG2G(obj)
             %  calcVG2G converts the virtual Gauss code to the real Gauss code
             % add virtual crossings in order to make the objects valid in visualization
             % issue: just after VG2G, must set sage link (for consistency)
-            vgc=obj.RGaussCode; 
+            vgc=obj.RGaussCode;
             vori=obj.ROrientation;
             [gc,ori]=vg2g(vgc,vori);
             obj.setData(reset=false,GaussCode=gc,orientation=ori)
@@ -1813,7 +1822,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     [RPD,ori,NC]=obj.getRPDCode;
                     obj.calcCrossingTable();
                     TS=obj.calcStrandTable(); % issue: PDcodeがTC依存なので，calcTCを呼ばないとTSが計算できない
-
+                    
                     
                     NE=max(RPD,[],"all")+NC;
                     gen=join("e"+(1:NE),",");
@@ -1872,11 +1881,28 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 ret=calcTensorExpression(expr,[]);
             elseif strcmp(hopfalg,"UR")||isa(hopfalg,'URDiagram')
                 D=VL2URD(obj);
-                b1=obj.calcSpec("b1");
+                % b1=obj.calcSpec("b1");
                 % D.simplify2;
                 % vars=symvar([D.W,D.C]);
                 % expr=simplify(subs([D.C,D.W],vars,eps*ones(size(vars))));
                 ret=D.trace;
+            elseif strcmp(hopfalg,"UR_")
+                [gc,ori]=obj.getRGaussCode; 
+                gc=gc{1};% issue: only for 1 strand
+                idx=find(gc>0,1);
+                gc=circshift(gc,1-idx);
+                gc2idx=dictionary(gc,cumsum(gc>0));
+                % ori=obj.ROrientation;
+                NV=length(ori);
+                A=zeros(NV,NV);
+                for v=1:NV
+                    A(gc2idx(v),gc2idx(-v))=ori(v);
+                end
+                adjust_term=sym(eye(NV)-circshift(eye(NV),1));
+                B=A+adjust_term;
+                % disp(B)
+                % disp(det(B))
+                ret=-1/det(B);
             end
         end
         function calcTables(obj,RVflag)
@@ -2527,7 +2553,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 TRE_=obj.REdgeTable;
                 weightCell=cell(size(gc_));
                 for si_=1:length(gc_)
-                    cgc_=gc_{si_}; 
+                    cgc_=gc_{si_};
                     [~,idx_]=ismember([circshift(cgc_,1);cgc_].',TRE_.Crossing,'rows');
                     weightCell{si_}=TRE_.Weight(idx_);
                 end
@@ -2643,7 +2669,7 @@ function [gc,ori]=vg2g(rgc,ro)
         % loop through each strand
         cgc=rgc{si};
         if isempty(cgc)||isequal(cgc,0), continue; end
-        iscut=cgc(end)==0; 
+        iscut=cgc(end)==0;
         cgc=[cgc(1:end-iscut),0]; % delete cut suffix
         if isscalar(cgc)
             rgc{si}=[];
