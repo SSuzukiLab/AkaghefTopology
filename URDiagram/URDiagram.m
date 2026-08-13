@@ -571,6 +571,27 @@ classdef URDiagram<handle&matlab.mixin.Copyable
             end
             obj.setDataFromCVW(C,[1,-1],W);         
         end
+        function simplify4(obj)
+            % simplify4 by open-chain normal symbol formula (only for rank=1)
+            %
+            % For block matrix M, put H_N(i,j)=1 for i<j and 0 otherwise.
+            % Then E(M)=C/det(I-H_N*M) * (1+det(M+I-S)/det(I-H_N*M))^theta.
+            assert(obj.rank==1,"not impl")
+            M=obj.getBlockMatrix();
+            NB=size(M,1);
+            H=sym(triu(ones(NB),1));
+            A=sym(eye(NB))-H*M;
+            B1=sym(eye(NB)-circshift(eye(NB),1));
+            detOpen=det(A);
+            detCycle=det(M+B1);
+            W=detCycle/detOpen;
+            C=obj.C/detOpen;
+            if isa(W,'sym')
+                W=simplify(W);
+                C=simplify(C);
+            end
+            obj.setDataFromCVW(C,[1,-1],W);
+        end
         %% invariants
         function ret=trace(obj)
             if obj.rank~=1
