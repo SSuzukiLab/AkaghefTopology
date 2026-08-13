@@ -36,6 +36,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         % [[e1,e2,e3,e4],...] anti-clockwise, starting with the incoming undercrossing.
         
         Ncircle (1,1) double =nan% the number of circle(unknot) components
+        NcircleStored (1,1) double =0 % circles omitted by Sage's empty PD/Gauss payload
         DTCode %not supported
         RGaussCode (1,:) cell % Gauss code with only real crossings
         RPDCode (:,4) double % PD code with only real crossings
@@ -1014,8 +1015,14 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         function updateRegions(obj)
         end
         function ret=get.Ncircle(obj)
-            gc=obj.getGC();
-            ret=sum(cellfun(@isempty,gc));
+            if obj.formatFlag("G")
+                derived=sum(cellfun(@isempty,obj.GaussCode));
+            elseif obj.formatFlag("VG")
+                derived=sum(cellfun(@isempty,obj.RGaussCode));
+            else
+                derived=0;
+            end
+            ret=max(obj.NcircleStored,derived);
         end
         
         function ret=get.sageName(obj)
@@ -1166,10 +1173,31 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
     methods
         function [PE,V,E]=calcPositions(obj,strct)
             % calcPositions determines the positions of vertices, edges
-            % issue: Ncircle are not implemented
             % issue: plot fails when bending number is not appropriate
             %  (also in case of auto layouting).
             % assume to have done calcTables
+            [gc0,ori0]=obj.getGaussCode(false);
+            if isempty(ori0)&&obj.Ncircle>0&&all(cellfun(@isempty,gc0))
+                % Sage returns no crossing/segment payload for components with
+                % empty Gauss code.  Represent each such component explicitly
+                % as one directed circle so the ordinary table-based renderer
+                % can handle the unknot without a separate plotting path.
+                componentCount=obj.Ncircle;
+                theta=linspace(0,2*pi,65);
+                PE=cell(componentCount,1);
+                TRE=obj.REdgeTable;
+                for component=1:componentCount
+                    center=(component-(componentCount+1)/2)*3*strct.componentGap;
+                    PE{component}=center+exp(1i*theta);
+                    TRE.Position{component}=PE{component};
+                    TRE.ID(component)=component;
+                end
+                obj.REdgeTable=TRE;
+                V=complex(zeros(1,0));
+                E=(1:componentCount).';
+                obj.formatFlag("pos")=true;
+                return
+            end
             % calc pos in Sage
             SW=SageWrapper.H;
             try
@@ -1412,10 +1440,16 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 obj.setSageLink;
                 gausscode=SW.exec(sprintf("%s.gauss_code()",obj.sageName));
                 gausscode=cellfun(@(x){double(x)},cell(gausscode));
+                if ~iscell(gausscode), gausscode={}; end
                 orientation=double(SW.exec(sprintf("%s.orientation()",obj.sageName)));
                 obj.GaussCode=gausscode;
                 obj.orientation=orientation;
                 obj.formatFlag("G")=true;
+            end
+            missingCircles=obj.Ncircle-sum(cellfun(@isempty,gausscode));
+            if missingCircles>0
+                gausscode=[gausscode,repmat({[]},1,missingCircles)];
+                obj.GaussCode=gausscode;
             end
             gausscode=helperCut(gausscode,false(1,~cutsufix*length(gausscode)));
             if obj.isWeighted
@@ -1447,7 +1481,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 filter_rv=find(orientation~=0);
                 orientation=orientation(filter_rv);
                 filter_rv=[-filter_rv,filter_rv,zeros(1,cutsufix)];
-                for si=length(GaussCode)
+                for si=1:length(GaussCode)
                     GaussCode{si}=GaussCode{si}(ismember(GaussCode{si},filter_rv));
                 end
                 ;
@@ -1674,6 +1708,10 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             % issue: just after VG2G, must set sage link (for consistency)
             vgc=obj.RGaussCode;
             vori=obj.ROrientation;
+            if all(cellfun(@isempty,vgc))
+                obj.setData(reset=false,GaussCode=vgc,orientation=vori);
+                return
+            end
             [gc,ori]=vg2g(vgc,vori);
             obj.setData(reset=false,GaussCode=gc,orientation=ori)
             obj.setSageLink;
@@ -1951,7 +1989,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             gc=obj.getGaussCode();
             Crossing=[];
             for si=1:length(gc)
-                Crossing=[Crossing;gc{si}([end,1:end-1;1:end].')];
+                if isempty(gc{si})
+                    Crossing=[Crossing;0,0];
+                else
+                    Crossing=[Crossing;gc{si}([end,1:end-1;1:end].')];
+                end
             end
             TE=repmat(obj.EdgeTableInit,size(Crossing,1),1);
             TE.Crossing=Crossing;
@@ -2001,12 +2043,15 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             end
             TRE.Arc(:)={[]};
             iscut=obj.isCut;
+            Crossing=zeros(0,2);
             for si=1:length(gc) % calc arcs
                 % issue: if all vertices are virtual, no firstVertex exist(unknot case)
                 cgc=gc{si};
                 if isempty(cgc) % unknot case
                     aj=aj+1;
                     ej=ej+1;
+                    TRE.Arc{aj}=[];
+                    Crossing(aj,:)=[0,0];
                     TRE.StrandID(aj)=si;
                     continue
                 end
@@ -2090,8 +2135,6 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             TS=obj.StrandTable;
             gap=0.2; % gap between edges
             
-            edgeSet=unique(horzcat(TS.Edges{:}));
-            dic=dictionary(edgeSet,1:length(edgeSet));
             if isempty(arg.cut) % compute cut flag
                 arg.cut=0+obj.isCut;
                 for si=1:height(TS)
@@ -2121,6 +2164,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 end
                 % calculate middle point of the segment to place the label
                 iscut=TE.Crossing(ei,:)==0;
+                isCircle=all(iscut)&&length(segs)>2&&abs(segs(1)-segs(end))<1e-12;
                 if all(~iscut)
                     seg=segs(floor(end/2)+(0:1));
                     mp=mean(seg);
@@ -2133,9 +2177,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                     plot(arrowhead,LineWidth=arg.lineWidth,Color=arg.color)
                 end
                 % % Why doubles may be casted into double here?
-                segs(1)=segs(1)+gap*(vend(1)<=0&&(vend(1)==0||TC.Orientation(abs(vend(1)))))*uvec(segs(1:2));
-                segs(end)=segs(end)+gap*(vend(2)<=0&&(vend(2)==0||TC.Orientation(abs(vend(2)))))*uvec(segs(end-(0:1)));
-                if arg.smooth
+                if ~isCircle
+                    segs(1)=segs(1)+gap*(vend(1)<=0&&(vend(1)==0||TC.Orientation(abs(vend(1)))))*uvec(segs(1:2));
+                    segs(end)=segs(end)+gap*(vend(2)<=0&&(vend(2)==0||TC.Orientation(abs(vend(2)))))*uvec(segs(end-(0:1)));
+                end
+                if arg.smooth&&~isCircle
                     segs=smoothCurve(segs,0.3);
                 end
                 plot(complex(segs),LineWidth=arg.lineWidth,Color=arg.color)
@@ -2150,6 +2196,11 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             xlim padded
             ylim padded
             axis equal
+            if any(all(TE.Crossing==0,2))
+                xl=xlim; yl=ylim;
+                xlim(xl+[-0.06,0.06]*diff(xl));
+                ylim(yl+[-0.06,0.06]*diff(yl));
+            end
             if ~arg.coordinate, axis off; end
             hold off
             set(gca, 'LooseInset', max(get(gca, 'TightInset'), 0))
@@ -2167,6 +2218,13 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 
                 if length(pts) < 3
                     ret = pts;
+                    return;
+                end
+                if length(pts)>32 && abs(pts(1)-pts(end))<1e-12
+                    % Analytically sampled circle components are already
+                    % smooth.  Applying the fixed corner radius to their
+                    % short segments creates loops and a serrated outline.
+                    ret=pts;
                     return;
                 end
                 
@@ -2356,6 +2414,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
             if arg.reset
                 obj.formatFlag=obj.formatFlag0;
                 obj.sageLinked=false;
+                obj.NcircleStored=0;
             end
             if isfield(arg,"headMap")
                 error("not use")
@@ -2392,7 +2451,7 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
                 else
                     NC=1; % unknot
                 end
-                obj.Ncircle=NC; % 動的に生成しているため必要無い.GCの生成に必要　
+                obj.NcircleStored=NC;
                 % issue:PDでこの直後にGCを習得するコードを書く必要がある．
                 NV=size(arg.PDCode,1);
                 obj.CrossingTable=repmat(obj.CrossingTableInit,NV,1);

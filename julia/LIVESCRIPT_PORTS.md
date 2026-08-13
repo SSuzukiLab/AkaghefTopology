@@ -1,0 +1,100 @@
+# Live Script migration status
+
+The previous version of this file incorrectly claimed that the migration covered
+all Live Scripts after inspecting only the five files below `topology/`.  That
+claim is withdrawn.  The repository-wide inventory is recorded in
+[`LIVE_SCRIPT_SCOPE.md`](LIVE_SCRIPT_SCOPE.md).
+
+Current evidence:
+
+- 60 `.mlx` files were converted to plain MATLAB source and inspected; all 60
+  are migration targets. The non-topology/algebra research scripts are not yet
+  Julia ports and must not be silently excluded by the topology dependency
+  classification.
+- 15 Live Scripts directly exercise `VirtualLink`, `URDiagram`, Gauss/o-data,
+  or a topology conversion routine.
+- 2 additional Live Scripts exercise algebra/tensor dependencies used by those
+  topology workflows.
+- 9 Live Scripts contain 44 calls to the o-graph plotting API.
+- 37 figures embedded in the source Live Scripts were extracted as MATLAB
+  reference images under `artifacts/matlab_outputs/`.
+
+No Julia Live Script port is marked complete until its code cells, observable
+data, and every plot have been compared with the MATLAB reference.  The five
+legacy SVG files under `artifacts/plots/` are retained only as rejected output;
+they are not fidelity evidence and must not be used for acceptance.
+
+## Current verified implementation
+
+- 46 dynamic Julia plot instances have been generated (44 source call sites;
+  one `arrayfun` call expands to three figures).
+- All 46 full-resolution Julia contact-sheet entries have been manually viewed,
+  but this is only a preliminary screen; it is not geometric acceptance.
+- 42 instances with complete MATLAB replay state match on normalized
+  `RGaussCode`, real orientation, weighted flag, and `weightRE`; run
+  `julia/scripts/export_plot_states.jl` followed by
+  `node julia/scripts/verify_plot_states.mjs` to repeat the comparison.
+- Julia-native implementations now cover PD code, regions, Sage-compatible
+  minimum-bend orthogonal layout, virtual planarization, real-edge tables,
+  disk coboundary data, H-move matrices, integral weight solutions, connected
+  sum, knot-complement conversion, `VL2URD`, `UR_`, standard-matrix trace
+  formula, finite-Hopf tensor contraction, Sweedler, small Borel
+  \(u_q(\mathfrak{sl}_2)\), exterior, cyclic-group, and Kac--Paljutkin Hopf
+  algebras.
+- The Julia suite is run in bounded shards because this desktop runner can
+  terminate a single Julia process at about 30 s.  Aggregate assertion counts
+  are not acceptance evidence and are deliberately not stated here until the
+  current shard logs have been retained.  It includes direct
+  MATLAB R2026a numeric replay values for C250818, C260125, and C260319.
+
+## Cell-level acceptance status
+
+`verified` means a Julia entry point and assertions cover its executable
+topology/algebra cells with a MATLAB numeric or structural oracle.  `partial`
+means the source was audited and useful cells are ported, but this file must not
+be used to claim the full Live Script complete.
+
+| Live Script | Status | Current Julia evidence | Open work |
+|---|---|---|---|
+| `Docs/experiment/C260225M_Oinv.mlx` | verified | cyclic invariant, (S^2), Hopf checks | Windows replay gate |
+| `algebra/Execution/C2508/C250825Dsl2.mlx` | verified | finite dual, Drinfeld and Heisenberg doubles | Windows replay gate |
+| `algebra/Execution/MSTinv/C250405Sweedler.mlx` | verified | Sweedler products, Hopf checks, two invariants | Windows replay gate |
+| `algebra/Execution/MSTinv/C250406TensorNetwork.mlx` | verified | all stored tetrahedron, introductory, framing, twist, and Sweedler/small-Borel/cyclic ring cells; small-Borel and cyclic Hopf checks | Windows replay gate |
+| `projects/invariant/C250811MSTinvUR.mlx` | verified | conversion/trace cells 1--8, two plot calls, non-weighted A2/B2/B4/A4/C2 MP cells, explicit UR sequences 13/15/16, cell-9 sweep (eight × -1/4), and cell-11 q=exp(4πi/5) invariant (-0.38197) | Windows replay gate |
+| `projects/invariant/C250818MSTinv_uqsl2.mlx` | verified | all numeric invariant families and six plots | Windows replay gate |
+| `projects/invariant/C250823MSTinv_extalg.mlx` | verified | all exterior-algebra invariant families and two plots | Windows replay gate |
+| `projects/invariant/C251020KnotDsl2bfromUR.mlx` | partial | Borromean/Whitehead plots and inputs; three rank-one helper cells; exact rank-one figure-eight Laurent reduction; Hopf `calcInv2` (C=1, Alexander=1); exact multi-rank source forms and four independent exact-rational UR-reduction checks | plot redraw/side-by-side acceptance and Windows replay |
+| `projects/invariant/C251030WeylAlgTraceFormula.mlx` | partial | exact standard-matrix determinant trace, symbolic N=1..4 correction matrices, cells 5--7 reductions, cell-8 knot variants (including singular trace), source-matched numeric N=4 reduction state \((C,V,W)=(-1/51,[13,-13],[-113/17])\), and the final N=4 identity \(1/\mathrm{trace}(D)+\det(A+I-\mathrm{circshift}(I,1))=0\) | retain exact reduced symbolic `D.W`/`D.C` display state and Windows replay |
+| `projects/invariant/C260125MSTinv_uqsl2.mlx` | verified | both surgery series, connected sums, shared invariant cells, 12 plots | Windows replay gate |
+| `projects/invariant/C260319MSTinv_unknot.mlx` | verified | cyclic and Kac--Paljutkin (p=1,2,3) values | Windows replay gate |
+| `projects/spine/example/C260220LensSpaces.mlx` | verified | all 31 Julia sweep cases; 24 successful MATLAB path-length outputs exactly match; (L(2,1)) weights/disk sums and plot | Julia also handles the 7 MATLAB try/catch error pairs |
+| `topology/Manifold/VLExample.mlx` | partial | 19 plot calls and core data operations | non-plot Sage display cells |
+| `topology/URDiagram/C240610URD.mlx` | partial | construction/reduction and `trace2` regression: common-ε exact limit −1 | per-edge symbolic-limit equivalence and Windows replay |
+| `topology/URDiagram/C240623URD.mlx` | partial | all four cells: three `trace` regressions at common-ε limits −1/9, −1, −1; fourth cell sets a,b before reducing to [2,−2] | per-edge symbolic-limit equivalence and Windows replay |
+| `topology/URDiagram/URDforKnotCmpl.mlx` | partial | three conversion constructions, source-oracled D2 manual prefix to [-5,1,-2,2,5,-1], the complete final D2 move sequence with explicit non-mutating `lim0` boundary, and current-source figure-eight numeric trace −4.526591341323682e−5 | obtain canonical MATLAB snapshots for the exploratory symbolic `D2.W`/`D2.C` display states; embedded XML’s −1562.5 is stale/error-state output, not the current-source oracle |
+| `topology/URDiagram/dev_URDiagram.mlx` | partial | validation, swaps, one plot, source-oracled `reduct3`/repeated `reduct5`/`simplify1` structural cells, and exact-decimal denominator loop N=1..15 [1,3,4,3,1,Inf,1,3,4,3,1,Inf,1,3,4] | complete remaining reduction/dilation cells and symbolic display normalization |
+
+## Remaining acceptance blockers
+
+The code-cell gate remains open because C251020/C251030 still need
+multi-variable Laurent cancellation and the URDiagram development/reduction
+scripts retain substantive unported workflows.  The C240610/C240623 trace
+oracles use a shared perturbation until a per-edge multivariate limit exists.
+
+For visual acceptance, a replayed MATLAB `REdgeTable.Position` polyline is a
+required geometry fixture.  `plot_svg(...; replay_positions=...)` consumes one
+polyline per real arc in stable `REdgeTable` traversal order and bypasses the
+Julia layout solver; without that fixture, the Julia optimizer may produce a
+valid but visually different o-graph and cannot be marked as a MATLAB plot
+match.
+
+The JSON fixture contract is explicit: `REdgeTable.Position` is a cell-aligned
+array whose element for each arc is an N-by-2 array of `[real, imag]` rows.
+`examples/C251020ReplayFixture.jl` rejects missing positions, non-finite values,
+arc-count mismatches, and crossing-order mismatches before rendering both
+C251020 figures. After canonical receipt, run
+`render_c251020_replay_fixtures(json_path, output_root)` and inspect the
+returned SVG/PNG pair beside the supplied MATLAB PNGs.
+
+The visual plot gate is separate: it is `mac-replayed`, not Windows canonical
+verification.
