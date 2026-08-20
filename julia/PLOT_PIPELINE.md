@@ -1,9 +1,10 @@
 # O-graph plot pipeline, parity, and the Windows constraint
 
-Audit dates: 2026-08-20 (initial), 2026-08-20 (revised after two retractions
-and the Windows finding).
+Audit dates: 2026-08-20 (initial), 2026-08-21 (revised after three
+retractions).
 Evidence status: `mac-replayed` for every measurement below, except section 7,
-which is read from Windows-side logs supplied on 2026-08-20.
+which is read from Windows-side sources: a log packet supplied 2026-08-20
+covering 2026-02/03, and `Execution/experiment/sage/` as pushed 2026-08-21.
 
 Environment used for the Mac measurements:
 
@@ -30,11 +31,16 @@ Given identical bending numbers, Julia reproduces the fork's corner sequence
 exactly on the hopf link and on both C251020 figures. It does **not** agree on
 diagrams containing self-loops (section 4).
 
-**The MATLAB plot path cannot run on Windows.** This is architectural, not a
-configuration fault (section 7). The consequence that matters most for this
-migration is that the canonical Windows `REdgeTable.Position` fixture, which
-several documents still list as the pending acceptance gate, cannot be produced
-at all under the current design. Those gates are void.
+**`SageWrapper` as designed cannot run on Windows, but Sage itself can be
+reached.** Corrected 2026-08-21, see section 7 and R3. `pyenv` cannot embed a
+WSL Sage, so the current bridge has no Windows form; however a working
+MATLAB → WSL Sage bridge exists and renders plots. A canonical fixture is
+therefore obtainable after `SageWrapper` is made stateless — it is not
+impossible, as an earlier revision of this file claimed.
+
+The fixture gates stay retired regardless, because plot acceptance no longer
+compares against MATLAB at all (see the criterion below). They are closed by
+decision, not by impossibility.
 
 Acceptance criterion, decided 2026-08-20: the target is **not** reproducing
 MATLAB's figures. It is that the algorithm delivers the figure quality it
@@ -43,10 +49,11 @@ accepted. MATLAB's output is a prior implementation, not an oracle.
 
 ---
 
-## 2. Two retractions
+## 2. Three retractions
 
-Recorded because both claims were circulated before being checked, and the
-later sections were rewritten around them.
+Recorded because each claim was circulated before being checked, and the later
+sections were rewritten around them. Two came from generalising past the
+measured range; one from treating a dated evidence packet as the present.
 
 **R1 — "Given the same bending numbers the Julia layout reproduces Sage
 exactly" was over-generalised.** It was measured on hopf, borromean and
@@ -69,8 +76,22 @@ self-loops was never part of its contract. No upstream Sage defect has been
 demonstrated by this work.
 
 What survives R2: **endpoints of a control polygon do lie on the curve**, so an
-endpoint check (P3) is valid against the fork's output. That check has not been
-run on the Sage side; it is the cheapest remaining comparison (section 8).
+endpoint check (P3, and the degree check P4v) is valid against the fork's
+output. That check has not been run on the Sage side; it is the cheapest
+remaining comparison (section 8).
+
+**R3 — "the MATLAB plot path cannot run on Windows" was too strong.** Corrected
+2026-08-21. It was written from a log packet covering 2026-02/03 and treated as
+the present state. `Execution/experiment/sage/run_sage4.m`, committed
+2026-06-23, drives WSL Sage from Windows MATLAB through an HTTP bridge and
+displays a rendered PNG. The earlier blockers in those logs — permissions,
+nested quoting, path mismatch — were solved there, partly by exchanging files
+over the `\\wsl$\Ubuntu\...` UNC path. Section 7 states the corrected boundary.
+
+*Procedural cause*: a supplied evidence packet establishes what was true at its
+date, not what is true now. The parent repository holding the fix was never
+fetched. Before writing a categorical impossibility into canon, check history
+up to today.
 
 ---
 
@@ -196,7 +217,8 @@ returns floats and the following `range(abs(s[...]) + 1)` raises `TypeError`
 **IS3 — the fork's geometry is not machine-independent.** It also dropped
 upstream's `solver=` parameter, so the Sage default decides. Fork-introduced;
 upstream exposes the choice. Largely moot now that the MATLAB path is not the
-oracle and cannot run on Windows.
+oracle, and because `SageWrapper` needs a stateless rewrite before it runs on
+Windows at all.
 
 **IS4 — `set_data!(v; pd=...)` does not preserve PD labelling.**
 `[1 2 4 3; 3 4 6 5; 5 6 2 1]` round-trips to `[5 2 6 3; 3 6 4 1; 1 4 2 5]`
@@ -248,29 +270,57 @@ defect exists in the fork has not been tested; part B shows the fork routing
 edge 8 correctly on the one case compared, so IS7 is at least partly
 Julia-specific.
 
-**IS8 — the MATLAB plot path cannot run on Windows.** Section 7.
+**IS8 — `SageWrapper`'s stateful design has no Windows form.** Sage itself is
+reachable from Windows MATLAB through the WSL bridge; the blocker is that the
+bridge spawns a fresh Sage per call while `SageWrapper` needs a persistent
+namespace. Section 7.
+
+**IS9 — some `connected_sum_*` instances self-cross without misrouting.** Found
+2026-08-21, when the property check was first run over the whole corpus rather
+than `VLExample` alone. `connected_sum_2`, `connected_sum_2_again` and
+`connected_sum_3` fail P6, and `connected_sum_3` also fails P7 — but all of them
+pass P1, P3, P4v and P5. Every edge terminates on its own crossing and every
+crossing has degree four, so the incidence structure is correct and the drawing
+is still not an embedding. That makes it a **different defect from IS7**, which
+always presents as P3+P4v+P6 together.
+
+Two hypotheses, neither tested: the unported `_isolated_components` /
+`component_gap` handling (§3.3) leaves components sitting on top of each other,
+or the router produces a genuinely non-planar embedding. Every affected instance
+has `real_only=true`, so each one passes through the never-compared planariser
+(§8).
 
 ---
 
-## 6. VLExample status
+## 6. Corpus status
 
-`examples/VLExample.jl`, the equivalent of `topology/Manifold/VLExample.mlx`.
+**Do not transcribe counts from here.** Run the checker; it writes a
+machine-readable record that documents and status pages should render:
 
-| Check | Result |
-|---|---|
-| Runs without exception | 19 / 19 |
-| SVG written | 19 / 19 (315–6129 bytes, none empty) |
-| P1 — every segment axis-parallel | 19 / 19 |
-| P5 — crossing positions distinct | 19 / 19 |
-| P3 — each edge ends on its own crossing | **16 / 19** |
-| P6 — no meeting except at a crossing | 16 / 19 (the same three) |
+```sh
+julia --project=julia julia/scripts/check_all_layouts.jl
+# → artifacts/layout_check.json, plus a table on stdout
+```
 
-Failing: `koda_virtual`, `s2xs1_calculation`, `koda_fig13`. All three are IS7;
-P6 failures are a consequence of the misrouted endpoint, not an independent
-defect. Deleting the `s2xs1_calculation` override takes this to 17 / 19.
+Numbers quoted in prose go stale the moment a router is fixed, which is exactly
+the failure `qmd思想.md` names ("計算と乖離した知識は腐る"). The JSON is also the
+seed of the value-record layer in `ATLAS_VISION.md` §4.
 
-`VISUAL_VERIFICATION.md` records all 19 as manually inspected and passing.
-The manual pass missed all three. A five-line endpoint assertion did not.
+What is stable enough to state in words, as of 2026-08-21:
+
+- Every plotted instance **runs and emits an SVG**; nothing throws.
+- P1 and P5 pass everywhere measured.
+- The failures fall into exactly two shapes: **IS7** (P3+P4v+P6 together, one
+  misrouted edge) and **IS9** (P6 alone, or P6+P7, with incidence intact).
+- Deleting the hand-pinned `bending_numbers` overrides removed a whole class of
+  failure. Every override was either harmful or inert: `lens_2_1` failed
+  P3+P4v in three groups and `s2xs1_calculation` failed P3+P4v+P6 in four, all
+  of which pass once the override is gone. `s2xs1_weighted` was inert. None of
+  them helped anywhere.
+
+`VISUAL_VERIFICATION.md` records the `VLExample` instances as manually
+inspected and passing. The manual pass missed every IS7 case. A five-line
+endpoint assertion did not.
 
 ---
 
@@ -286,33 +336,41 @@ state the combination is "structurally incompatible". `SageWrapper.m` depends
 on exactly this embedding, plus a persistent `sage.all.__dict__` namespace
 holding diagram state under `sageName`, so the bridge has no Windows form.
 
-**The external-process fallback was attempted and did not land.** Calling WSL
-Sage through `wsl.exe` hit `PermissionError: [Errno 13]` on
-`/home/akaghef/dev/sageio`, `bash: syntax error near unexpected token '('` from
-nested quoting in `sage -c`, a `NameError` from broken filename quoting, and a
-Windows/WSL path mismatch for `job.sage`. These are individually solvable, but
-the result is a stateless RPC, which means rewriting `SageWrapper`.
+**The external-process route did land, three months after those logs.**
+`Execution/experiment/sage/run_sage4.m` (2026-06-23) starts
+`experiment/sage/sage_bridge_server.py` inside WSL over `wsl bash -lc` with
+`conda activate sage`, talks to it on `127.0.0.1:8765`, and exchanges files
+through the `\\wsl$\Ubuntu\home\akaghef\dev\sageio` UNC path. Its demo runs
+`Knots().from_table(3,1).plot()`, saves a PNG and displays it with `imshow`.
+The failures recorded in the earlier logs — `PermissionError: [Errno 13]`,
+`bash: syntax error near unexpected token '('`, the `job.sage` path mismatch —
+are resolved there.
 
-**Consequences.**
+**What still does not work, and why.** The bridge is persistent as a *server*,
+not as a *Sage session*: `/exec` runs `subprocess.run([sage_cmd, "-c", code])`
+per request, so every call is a fresh Sage. `SageWrapper.m` keeps diagram state
+in `sage.all.__dict__` under `sageName` and expects it to survive across calls
+(`setSageLink`, then `getPDCode`, `getGaussCode`, `calcPos` each referencing
+that variable). That design has no Windows form.
 
-1. The canonical Windows `REdgeTable.Position` fixture **cannot be produced**
-   under the current design. Every gate that waits on it is void, not pending.
-2. `CANONICAL_BOUNDARY.md` requires the Windows Harness to rerun and compare
-   structural, numerical **and visual** evidence. The visual clause is
-   unexecutable on Windows for the MATLAB path.
-3. Julia is therefore the only path that can produce plots on the canonical
-   platform. The dependency set is free of Python, Sage and system libraries,
-   so this is expected to work — but **it has not been verified on Windows**.
-   The one thing to check is whether
-   `julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'` succeeds
-   there. If `GLPK_jll` fails to resolve, `HiGHS` or `Cbc` are drop-in
-   alternatives.
+**Corrected consequences.**
 
-Two escape routes exist and are not recommended: a stateless `wsl.exe` RPC
-(rewrites the bridge, invests in a path being retired), or running MATLAB
-itself inside WSL (the logs call this architecturally cleanest, but note
-licence-activation friction, and it moves the Harness off the Windows-native
-location the ADR names).
+1. A canonical Windows fixture is **obtainable, conditionally**. It requires
+   making `SageWrapper` stateless — prepending the construction expression to
+   each `exec`, which `setSageLink` already knows how to build. Thirteen
+   methods in `VirtualLink.m` reach Sage. Cost per call is a Sage start-up
+   (seconds), acceptable for a one-off fixture export, poor for interactive
+   work.
+2. `CANONICAL_BOUNDARY.md`'s visual clause is therefore **executable on Windows
+   after that rewrite**, not unexecutable. The addendum in that file is
+   corrected accordingly.
+3. The fixture gates stay retired anyway, because plot acceptance no longer
+   compares against MATLAB (section 1). They are closed by decision.
+4. Julia remains the preferred plot path, now on substrate and speed grounds
+   rather than necessity: no Python, no Sage, no system prerequisite, no
+   per-call interpreter start-up. **Still unverified on Windows.** The check is
+   `julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'`; if
+   `GLPK_jll` fails to resolve, `HiGHS` or `Cbc` are drop-in alternatives.
 
 ---
 

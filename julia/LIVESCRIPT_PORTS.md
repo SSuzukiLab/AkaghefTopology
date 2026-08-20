@@ -38,12 +38,13 @@ work counts as finished.
    That model has many optima with equal objective and the backend picks one.
    Tests compare the objective value; they must never compare the bending
    vector or the resulting coordinates against a stored MATLAB answer.
-3. **The Windows fixture gate is void, not pending.**  Several entries below
-   read "Windows replay gate".  The MATLAB plot path cannot run on Windows at
-   all: `pyenv` embeds a Windows-native CPython and WSL's Sage is a Linux ELF
-   build, so `SageWrapper` has no Windows form.  A canonical Windows
-   `REdgeTable.Position` fixture therefore cannot be produced under the current
-   design.  See [`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7.
+3. **The Windows fixture gate is retired.**  Several entries below read
+   "Windows replay gate".  Those gates are closed by criteria 1–2 above, not by
+   any impossibility: Sage *is* reachable from Windows MATLAB through the WSL
+   bridge, and a fixture becomes producible once `SageWrapper` is made
+   stateless.  What has no Windows form is `SageWrapper`'s persistent
+   `sage.all` namespace, because the bridge spawns a fresh Sage per call.
+   See [`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7 and R3.
 4. **Code cells and numeric results are unaffected.**  They keep their MATLAB
    oracles; only the plot criterion changed.
 
@@ -85,10 +86,11 @@ means the source was audited and useful cells are ported, but this file must not
 be used to claim the full Live Script complete.
 
 **"Windows replay gate" in the Open work column is stale.**  Those entries were
-written when a Windows rerun was expected to supply plot fixtures.  For the
-plot half that gate is void (criterion 3 above); for the numeric half it still
-stands in principle, but the same `pyenv` constraint blocks any Windows MATLAB
-run that needs Sage, which includes every `VirtualLink` workflow.  Rows are left
+written when a Windows rerun was expected to supply plot fixtures.  For the plot
+half that gate is retired (criterion 3 above).  For the numeric half it still
+stands, and it is reachable: any Windows MATLAB run that needs Sage requires
+`SageWrapper` to be made stateless first, because the WSL bridge spawns a fresh
+Sage per call.  That covers every `VirtualLink` workflow.  Rows are left
 unedited so the original wording stays auditable; read them through this note.
 
 | Live Script | Status | Current Julia evidence | Open work |
@@ -124,10 +126,14 @@ This section previously required a replayed MATLAB `REdgeTable.Position`
 polyline as a geometry fixture before any plot could be accepted.  **That
 requirement is withdrawn**, for two independent reasons.
 
-*It is unobtainable.*  The MATLAB plot path cannot run on Windows, so no
-canonical Windows fixture can be produced under the current design
-([`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7).  The blocker is not late;
-it has no completion state.
+*It is not the criterion.*  Plot acceptance is now property-based rather than a
+comparison against MATLAB, so a fixture would not settle anything even if it
+arrived.
+
+(An earlier revision of this section also called the fixture unobtainable.
+That was corrected on 2026-08-21: Sage is reachable from Windows MATLAB through
+the WSL bridge, and a fixture becomes producible once `SageWrapper` is made
+stateless.  See [`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7 and R3.)
 
 *It is no longer the criterion.*  Plot acceptance is now property-based, not
 comparison-based (criterion 1–2 at the top of this file).  A layout that

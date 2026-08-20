@@ -32,8 +32,10 @@ settles:
   that the layout is a valid bend-minimal orthogonal embedding, checked by
   property. Differences caused by the degenerate minimum-bend MILP are
   accepted.
-- The MATLAB plot path **cannot run on Windows**, so the canonical fixture that
-  several documents waited on is unobtainable, not late.
+- `SageWrapper` **has no Windows form** as designed, though Sage is reachable
+  there through the WSL bridge. The canonical fixture is obtainable after a
+  stateless rewrite; the gates waiting on it are retired by decision, not by
+  impossibility.
 - The open plot defect is IS7 in `_route_edges`: the edge closing a cycle can
   terminate on the wrong crossing, silently. It affects 3 of the 19
   `VLExample` plot calls.

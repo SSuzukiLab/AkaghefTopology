@@ -28,6 +28,129 @@ function _rounded_svg_path(points; radius=0.3)
     join(commands," ")
 end
 
+"""Drawing constants for the link renderer, in layout lattice units.
+
+Working in lattice units rather than projected pixels is what makes these
+consistent across figures: a crossing gap of `gap` is the same fraction of an
+edge whether the diagram spans three units or thirty. The previous renderer
+applied a fixed `0.20` before projection and a corner radius after it, so gaps
+narrowed as diagrams grew.
+"""
+const LINK_STYLE = (strand=0.10, arrow=0.085, gap=0.18, radius=0.28,
+                    vertex=0.115, font=0.32, margin=0.7, px_per_unit=72)
+
+_num(x) = string(round(x;digits=4))
+_pt(z::ComplexF64) = (real(z), -imag(z))   # SVG y grows downward
+
+"""Render a weight without a spurious decimal tail.
+
+o-graph weights are integers in every workflow here, but they are carried as
+`Float64`, so the naive `string` gave `0.0` and `-1.0` on every label.
+"""
+function _fmt_weight(w)
+    w isa Real || return string(w)
+    isfinite(w) || return string(w)
+    isinteger(w) ? string(Int(w)) : string(w)
+end
+
+"""Push overlapping labels apart, in place, in layout coordinates.
+
+Offsetting a weight label along its arc's normal separates it from *its own*
+strand but not from a parallel arc one lattice line over, which is exactly what
+a bundle of arcs sharing a column produces. A few relaxation passes over the
+label discs fix that without needing a real label-placement solver.
+"""
+function _spread_labels!(placed; passes=40)
+    radius(text)=LINK_STYLE.font*(0.30+0.26*length(text))
+    for _ in 1:passes
+        moved=false
+        for i in 1:length(placed), j in i+1:length(placed)
+            want=radius(placed[i].text)+radius(placed[j].text)
+            delta=placed[j].pos-placed[i].pos
+            gap=abs(delta)
+            gap >= want && continue
+            push_by = gap < 1e-6 ? complex(0.0,want/2) : (want-gap)/2*delta/gap
+            placed[i]=(pos=placed[i].pos-push_by,text=placed[i].text)
+            placed[j]=(pos=placed[j].pos+push_by,text=placed[j].text)
+            moved=true
+        end
+        moved || break
+    end
+    placed
+end
+
+"""A text element that stays readable where it crosses a strand.
+
+`paint-order="stroke"` draws the halo first and the glyph over it, so labels do
+not have to be nudged away from every line to remain legible.
+"""
+function _label(x,y,text; anchor="middle", size=LINK_STYLE.font)
+    "<text class=\"label\" x=\"$(_num(x))\" y=\"$(_num(y))\" text-anchor=\"$anchor\" " *
+    "dominant-baseline=\"middle\" font-family=\"sans-serif\" font-size=\"$(_num(size))\" " *
+    "fill=\"#12161d\" stroke=\"#faf9f7\" stroke-width=\"$(_num(size*0.28))\" " *
+    "paint-order=\"stroke\" stroke-linejoin=\"round\">$(_esc(text))</text>"
+end
+
+"""Point and unit tangent at the arc-length midpoint of a polyline.
+
+The previous renderer placed the arrow at the midpoint *index*, so it jumped
+whenever the number of corners changed.
+"""
+function _arclength_midpoint(points)
+    length(points) < 2 && return (first(points), complex(1.0,0.0))
+    spans=[abs(points[i+1]-points[i]) for i in 1:length(points)-1]
+    target=sum(spans)/2
+    walked=0.0
+    for (i,span) in enumerate(spans)
+        span == 0 && continue
+        if walked+span >= target || i == length(spans)
+            t=(target-walked)/span
+            direction=(points[i+1]-points[i])/span
+            return (points[i]+t*(points[i+1]-points[i]), direction)
+        end
+        walked += span
+    end
+    (points[end], complex(1.0,0.0))
+end
+
+"""Wrap link body markup in a themed, content-fitted SVG.
+
+The viewBox is the content bounding box plus a margin, so the drawing scales
+itself and every length above stays in lattice units. Colours are emitted twice:
+as presentation attributes, which any renderer honours, and as CSS classes that
+override them where CSS is supported. That keeps `rsvg-convert` output correct
+while still letting a browser theme the figure.
+"""
+function _write_link_svg(path, body, bbox; title="o-graph", desc="", meta=nothing)
+    xmin,xmax,ymin,ymax = bbox
+    m = LINK_STYLE.margin
+    width  = (xmax-xmin)+2m
+    height = (ymax-ymin)+2m
+    view = "$(_num(xmin-m)) $(_num(-(ymax+m))) $(_num(width)) $(_num(height))"
+    px = LINK_STYLE.px_per_unit
+    open(path,"w") do io
+        println(io,"<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"ograph\" ",
+                   "width=\"$(_num(width*px))\" height=\"$(_num(height*px))\" viewBox=\"$view\" ",
+                   "role=\"img\" aria-label=\"$(_esc(title))\">")
+        println(io,"<title>$(_esc(title))</title>")
+        isempty(desc) || println(io,"<desc>$(_esc(desc))</desc>")
+        meta === nothing || println(io,"<metadata><ograph>$(_esc(meta))</ograph></metadata>")
+        println(io,"""<style>
+.ograph{--ground:#faf9f7;--strand:#1b3bd0;--ink:#12161d}
+@media (prefers-color-scheme:dark){.ograph{--ground:#0e1116;--strand:#7d97ff;--ink:#e6e9ef}}
+.ograph .bg{fill:var(--ground)}
+.ograph .arc,.ograph .arrow{stroke:var(--strand);fill:none}
+.ograph .vertex{fill:var(--strand)}
+.ograph .label{fill:var(--ink);stroke:var(--ground)}
+</style>""")
+        println(io,"<rect class=\"bg\" x=\"$(_num(xmin-m))\" y=\"$(_num(-(ymax+m)))\" ",
+                   "width=\"$(_num(width))\" height=\"$(_num(height))\" fill=\"#faf9f7\"/>")
+        println(io, body)
+        println(io,"</svg>")
+    end
+    abspath(path)
+end
+
 function _write_svg(path, body; width=900, height=600)
     open(path, "w") do io
         println(io, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"$width\" height=\"$height\" viewBox=\"0 0 $width $height\">")
@@ -176,9 +299,14 @@ function plot_svg(v::VirtualLink, path::AbstractString; bending_numbers=nothing,
                   edge_labels=:weight,replay_positions=nothing)
     body=String[]
     if isempty(v.orientation)
-        push!(body,"<circle cx=\"450\" cy=\"300\" r=\"145\" fill=\"none\" stroke=\"#0000ff\" stroke-width=\"4\"/>")
-        push!(body,"<path d=\"M 578 300 L 595 274 L 612 300\" fill=\"none\" stroke=\"#0000ff\" stroke-width=\"4\"/>")
-        return _write_svg(path,join(body,"\n"))
+        S=LINK_STYLE
+        push!(body,"<circle class=\"arc\" cx=\"0\" cy=\"0\" r=\"1\" fill=\"none\" ",
+                   "stroke=\"#1b3bd0\" stroke-width=\"$(_num(S.strand))\"/>")
+        push!(body,"<path class=\"arrow\" d=\"M 0.88 -0.20 L 1.0 0 L 1.12 -0.20\" fill=\"none\" ",
+                   "stroke=\"#1b3bd0\" stroke-width=\"$(_num(S.arrow))\" stroke-linejoin=\"round\"/>")
+        return _write_link_svg(path,join(body,"\n"),(-1.0,1.0,-1.0,1.0);
+                               title="unknot",desc="Unknot: one closed component, no crossings.",
+                               meta="crossings=0; arcs=0; weighted=false")
     end
     layout=nothing
     arcs=if replay_positions === nothing
@@ -194,46 +322,49 @@ function plot_svg(v::VirtualLink, path::AbstractString; bending_numbers=nothing,
     end
     all_points=reduce(vcat,(arc.points for arc in arcs))
     xmin,xmax=extrema(real.(all_points)); ymin,ymax=extrema(imag.(all_points))
-    sx=760/max(xmax-xmin,1); sy=480/max(ymax-ymin,1); scale=min(sx,sy)
-    project(z)=((real(z)-xmin)*scale+70,(ymax-imag(z))*scale+60)
+    S=LINK_STYLE
+    placed=NamedTuple[]
 
     for arc in arcs
         points=copy(arc.points)
-        # Match MATLAB's crossing gap: under-strand endpoints are shortened.
+        # Under-strand ends are shortened to open the crossing gap. In lattice
+        # units, so the gap reads the same on every diagram.
         if arc.source < 0 && length(points)>1
-            points[1] += 0.20*(points[2]-points[1])/abs(points[2]-points[1])
+            points[1] += S.gap*(points[2]-points[1])/abs(points[2]-points[1])
         end
         if arc.target < 0 && length(points)>1
-            points[end] += 0.20*(points[end-1]-points[end])/abs(points[end-1]-points[end])
+            points[end] += S.gap*(points[end-1]-points[end])/abs(points[end-1]-points[end])
         end
-        projected=[project(point) for point in points]
-        data=_rounded_svg_path(projected;radius=0.3scale)
-        push!(body,"<path d=\"$data\" fill=\"none\" stroke=\"#0000ff\" stroke-width=\"4\" stroke-linejoin=\"round\"/>")
+        data=_rounded_svg_path([_pt(point) for point in points];radius=S.radius)
+        push!(body,"<path class=\"arc\" data-arc=\"$(arc.id)\" d=\"$data\" fill=\"none\" ",
+                   "stroke=\"#1b3bd0\" stroke-width=\"$(_num(S.strand))\" ",
+                   "stroke-linejoin=\"round\" stroke-linecap=\"round\"/>")
 
-        middle=max(1,min(length(projected)-1,fld(length(projected),2)))
-        p1=points[middle]; p2=points[middle+1]; midpoint=(p1+p2)/2
-        unit=(p2-p1)/abs(p2-p1); left=midpoint-unit*0.16+unit*im*0.09; right=midpoint-unit*0.16-unit*im*0.09
-        arrow=[project(left),project(midpoint),project(right)]
-        arrow_data="M $(arrow[1][1]) $(arrow[1][2]) L $(arrow[2][1]) $(arrow[2][2]) L $(arrow[3][1]) $(arrow[3][2])"
-        push!(body,"<path d=\"$arrow_data\" fill=\"none\" stroke=\"#0000ff\" stroke-width=\"3\"/>")
+        midpoint,unit=_arclength_midpoint(points)
+        back=midpoint-unit*0.20
+        left=back+unit*im*0.11; right=back-unit*im*0.11
+        arrow=[_pt(left),_pt(midpoint),_pt(right)]
+        arrow_data="M $(_num(arrow[1][1])) $(_num(arrow[1][2])) L $(_num(arrow[2][1])) $(_num(arrow[2][2])) L $(_num(arrow[3][1])) $(_num(arrow[3][2]))"
+        push!(body,"<path class=\"arrow\" d=\"$arrow_data\" fill=\"none\" stroke=\"#1b3bd0\" ",
+                   "stroke-width=\"$(_num(S.arrow))\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>")
+
         if v.is_weighted || edge_labels in (:id,:all)
             parts=String[]
             edge_labels in (:id,:all) && push!(parts,"E$(arc.id)")
             v.is_weighted && edge_labels in (:weight,:all) && !isnan(arc.weight) &&
-                push!(parts,string(arc.weight))
+                push!(parts,_fmt_weight(arc.weight))
             label=join(parts,", ")
-            mx,my=project(midpoint)
-            push!(body,"<text x=\"$(mx+5)\" y=\"$(my-5)\" font-family=\"sans-serif\" font-size=\"17\">$(_esc(label))</text>")
+            # Sit the label beside the arc rather than on it: offset along the
+            # normal of the local tangent, consistently to the left of travel.
+            isempty(label) || push!(placed,(pos=midpoint+unit*im*0.26,text=label))
         end
     end
+
+    vertices=ComplexF64[]
     if replay_positions === nothing
-        real_index=0
         for (index,point) in enumerate(layout.crossings)
             layout.orientation[index] == 0 && continue
-            real_index += 1
-            x,y=project(point)
-            push!(body,"<circle cx=\"$x\" cy=\"$y\" r=\"5\" fill=\"#0000ff\"/>")
-            push!(body,"<text x=\"$(x+8)\" y=\"$(y-8)\" font-family=\"sans-serif\" font-size=\"17\">V$real_index</text>")
+            push!(vertices,point)
         end
     else
         crossings=Dict{Int,ComplexF64}()
@@ -244,11 +375,32 @@ function plot_svg(v::VirtualLink, path::AbstractString; bending_numbers=nothing,
                 crossings[crossing]=point
             end
         end
-        for (real_index,crossing) in enumerate(sort!(collect(keys(crossings))))
-            x,y=project(crossings[crossing])
-            push!(body,"<circle cx=\"$x\" cy=\"$y\" r=\"5\" fill=\"#0000ff\"/>")
-            push!(body,"<text x=\"$(x+8)\" y=\"$(y-8)\" font-family=\"sans-serif\" font-size=\"17\">V$real_index</text>")
-        end
+        vertices=[crossings[k] for k in sort!(collect(keys(crossings)))]
     end
-    _write_svg(path,join(body,"\n"))
+    # Vertex labels are pushed away from the diagram's centre, so in a dense
+    # figure they fan outwards instead of piling into the middle.
+    centre = isempty(vertices) ? complex(0.0,0.0) : sum(vertices)/length(vertices)
+    for (real_index,point) in enumerate(vertices)
+        x,y=_pt(point)
+        push!(body,"<circle class=\"vertex\" cx=\"$(_num(x))\" cy=\"$(_num(y))\" ",
+                   "r=\"$(_num(S.vertex))\" fill=\"#1b3bd0\"/>")
+        away = point - centre
+        away = abs(away) < 1e-9 ? complex(0.7071,0.7071) : away/abs(away)
+        push!(placed,(pos=point + away*0.30,text="V$real_index"))
+    end
+
+    _spread_labels!(placed)
+    for item in placed
+        lx,ly=_pt(item.pos)
+        push!(body,_label(lx,ly,item.text))
+        xmin=min(xmin,real(item.pos)); xmax=max(xmax,real(item.pos))
+        ymin=min(ymin,imag(item.pos)); ymax=max(ymax,imag(item.pos))
+    end
+
+    name=basename(path); name=name[1:something(findlast('.',name),length(name)+1)-1]
+    gauss=join(("["*join(c,",")*"]" for c in v.gauss),", ")
+    desc="$(length(vertices)) real crossing(s), $(length(arcs)) arc(s). Gauss $gauss."
+    _write_link_svg(path,join(body,"\n"),(xmin,xmax,ymin,ymax);
+                    title=name,desc=desc,
+                    meta="crossings=$(length(vertices)); arcs=$(length(arcs)); weighted=$(v.is_weighted)")
 end

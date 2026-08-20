@@ -9,11 +9,11 @@
 > - **ランタイムは復旧済み。** 8/20 に julia 1.6.3 と node v26.0.0 を確認。
 >   `Pkg.test()` は 16 pass / 1 error（`run_URDforKnotCmpl_d2_exploratory_cell`
 >   の `simplify2!` 後に move 列が適用できない。これは未解決）。
-> - **再開順 4 は実行不能。** Windows MATLAB は `pyenv` で WSL の Sage に到達
->   できない（Windows ネイティブ CPython を埋め込む仕組みで、WSL の Sage は
->   Linux ELF）。canonical な `REdgeTable.Position` fixture は現行設計では
->   生成できないので、`render_c251020_replay_fixtures` を待つ手順は無効。
->   詳細は `julia/PLOT_PIPELINE.md` 第7節。
+> - **再開順 4 は保留（2026-08-21 訂正）。** `pyenv` で WSL の Sage を埋め込む
+>   のは不可能だが、`Execution/experiment/sage/run_sage4.m`(6/23) が WSL の Sage
+>   をブリッジ経由で呼んで図を返すところまで通っている。fixture は `SageWrapper`
+>   を stateless 化すれば取得可能。ただし受入基準が性質検査に変わったため、
+>   fixture を待つ手順自体が不要になった。詳細は `julia/PLOT_PIPELINE.md` 第7節と R3。
 > - **再開順 5 の受入基準は変更された。** 図の受入は MATLAB との一致ではなく
 >   性質検査（P1/P3/P5/P6）に置き換えた。最小曲げ MILP の退化に起因する
 >   不一致は許容する。`julia/LIVESCRIPT_PORTS.md` の冒頭を参照。

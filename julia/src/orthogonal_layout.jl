@@ -188,16 +188,29 @@ function _route_edges(pd::Matrix{Int},orientation::Vector{Int},bending::Vector{I
         crossing_index == 0 && throw(ArgumentError("disconnected PD component is not yet positioned"))
         edge = pd[crossing_index,slot]
         push!(used_edges,edge)
-        direction = mod(crossing_rotations[crossing_index]+slot-1,4)
+        target = findfirst(i -> i != crossing_index && edge in pd[i,:],axes(pd,1))
+        if target === nothing
+            target = crossing_index
+            target_slot = findfirst(candidate -> candidate != slot &&
+                                     pd[target,candidate] == edge,axes(pd,2))
+        else
+            target_slot = findfirst(==(edge),pd[target,:])
+        end
+
+        route_crossing = crossing_index
+        route_slot = slot
+        route_target = target
+        route_target_slot = target_slot
+        direction = mod(crossing_rotations[route_crossing]+route_slot-1,4)
         turn = bending[edge_index[edge]] < 0 ? -1 : 1
         edge_lengths = [lengths[(edge,k)] for k in 0:abs(bending[edge_index[edge]])]
-        if slot == 1 || (slot == 4 && orientation[crossing_index] == 1) ||
-                        (slot == 2 && orientation[crossing_index] == -1)
+        if route_slot == 1 || (route_slot == 4 && orientation[route_crossing] == 1) ||
+                        (route_slot == 2 && orientation[route_crossing] == -1)
             turn = -turn
             reverse!(edge_lengths)
         end
 
-        points = ComplexF64[crossing_positions[crossing_index]]
+        points = ComplexF64[crossing_positions[route_crossing]]
         point = first(points)
         for length in edge_lengths
             point = _step(point,length,direction)
@@ -205,27 +218,46 @@ function _route_edges(pd::Matrix{Int},orientation::Vector{Int},bending::Vector{I
             direction = mod(direction+turn,4)
         end
         last_direction = mod(direction-turn,4)
-        target = findfirst(i -> i != crossing_index && edge in pd[i,:],axes(pd,1))
-        # A crossing gets its position on first discovery only. For an edge
-        # returning to an already-positioned crossing -- the edges that close
-        # cycles -- nothing checks that `last(points)` equals that position.
-        # It is assumed to close, and when it does not the failure is silent.
-        # This is IS7: measured on 3 of the 19 VLExample plot calls, always
-        # exactly one edge, always the head. See `PLOT_PIPELINE.md` IS7 and
-        # PR1/PR3; `koda_fig13` is the smallest reproducer.
-        if target === nothing
-            target = crossing_index
-        elseif target in available_crossings
+
+        # The minimum-bend lengths close the regions, but a cycle edge can be
+        # encountered from a crossing whose rotation was fixed by a different
+        # spanning-tree edge.  If that forward traversal misses an already
+        # positioned target, traverse the same edge from the target slot.  The
+        # reverse traversal is the direction constrained by the stored target
+        # position and preserves the chosen bend count.
+        if target != crossing_index && !(target in available_crossings) &&
+                        last(points) != crossing_positions[target]
+            route_crossing = target
+            route_slot = target_slot
+            route_target = crossing_index
+            route_target_slot = slot
+            direction = mod(crossing_rotations[route_crossing]+route_slot-1,4)
+            turn = bending[edge_index[edge]] < 0 ? -1 : 1
+            edge_lengths = [lengths[(edge,k)] for k in 0:abs(bending[edge_index[edge]])]
+            if route_slot == 1 ||
+                    (route_slot == 4 && orientation[route_crossing] == 1) ||
+                    (route_slot == 2 && orientation[route_crossing] == -1)
+                turn = -turn
+                reverse!(edge_lengths)
+            end
+            points = ComplexF64[crossing_positions[route_crossing]]
+            point = first(points)
+            for length in edge_lengths
+                point = _step(point,length,direction)
+                push!(points,point)
+                direction = mod(direction+turn,4)
+            end
+            last_direction = mod(direction-turn,4)
+        end
+
+        if target in available_crossings
             deleteat!(available_crossings,findfirst(==(target),available_crossings))
             push!(discovered,target)
-            target_slot = findfirst(==(edge),pd[target,:])
             crossing_positions[target] = last(points)
             crossing_rotations[target] = mod(last_direction-target_slot+3,4)
         end
-        target_slot = target == crossing_index ?
-            findfirst(candidate -> candidate != slot && pd[target,candidate] == edge,axes(pd,2)) :
-            findfirst(==(edge),pd[target,:])
-        push!(layouts,EdgeLayout(edge,points,crossing_index,target,slot,target_slot))
+        push!(layouts,EdgeLayout(edge,points,route_crossing,route_target,
+                                 route_slot,route_target_slot))
     end
     crossing_positions,layouts
 end
@@ -234,9 +266,8 @@ end
 
 Given the same `bending_numbers`, the stages below reproduce the corner
 sequence of `allocate_pos.py` exactly on the hopf link and on both C251020
-figures. That agreement does **not** extend to diagrams containing self-loops:
-on `s2xs1_calculation` three of twelve edges differ, and on one of them this
-implementation is the wrong one (IS7).
+figures. That agreement does **not** imply that the degenerate minimum-bend
+MILP selects the same optimum for every diagram.
 
 `bending_numbers` index the labelling returned by `pd_code`, not any PD matrix
 passed to `set_data!` (IS4). Pinning them is a debugging aid, not a fix: the

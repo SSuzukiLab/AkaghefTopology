@@ -72,7 +72,8 @@ This ADR introduces no contradiction that requires stopping the Mac migration;
 it adds a hard promotion boundary after Mac-side acceptance and before any
 Windows canonical claim or ledger update.
 
-## Finding logged 2026-08-20: the visual clause is not executable on Windows
+## Finding logged 2026-08-20, corrected 2026-08-21: the visual clause needs a
+## stateless `SageWrapper` on Windows
 
 This section records a fact found after the ADR was written.  **It does not
 amend the boundary.**  Changing the promotion conditions is the A-sys / ADR
@@ -90,18 +91,27 @@ it has no Windows form.  An external-process fallback through `wsl.exe` was
 attempted and did not land.  Details in
 [`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7.
 
+**Correction, 2026-08-21.**  The paragraph above stated the constraint too
+strongly, and the consequences below are the corrected version.  Sage *is*
+reachable from Windows MATLAB: `Execution/experiment/sage/run_sage4.m`
+(2026-06-23) drives WSL Sage over an HTTP bridge and renders a plot back into
+MATLAB.  What has no Windows form is `SageWrapper`'s persistent `sage.all`
+namespace, because the bridge runs `sage -c` as a fresh process per call.
+
 Consequences for the conditions stated above:
 
 1. The requirement that Windows rerun and compare structural, numerical **and
-   visual** evidence cannot be met for the visual part by the MATLAB path.
-   Every `VirtualLink` workflow reaches Sage, so this covers the whole plot
-   corpus.
+   visual** evidence is **conditionally satisfiable**.  It requires
+   `SageWrapper` to be made stateless — prepending the construction expression
+   to each `exec`, which `setSageLink` already builds.  Thirteen methods in
+   `VirtualLink.m` reach Sage.  Until that rewrite, no Windows `VirtualLink`
+   workflow runs.
 2. The manifest item "for each plotted `VirtualLink`, source
-   `REdgeTable.Position` polylines and crossing positions" cannot be produced
-   on Windows.  Mac-side export remains possible.
+   `REdgeTable.Position` polylines and crossing positions" is likewise
+   producible on Windows after that rewrite.  Mac-side export is possible now.
 3. The Julia path has no Python, Sage or system dependency and is expected to
-   run natively on Windows, which would make it the only way to satisfy a
-   plot-evidence clause there.  **This has not been verified on Windows.**
+   run natively on Windows, which would satisfy a plot-evidence clause without
+   the rewrite.  **This has not been verified on Windows.**
 
 Nothing here relaxes the boundary.  Until the ADR owner rules, plot evidence
 produced anywhere remains `mac-replayed` at best, and no promotion follows from

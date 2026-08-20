@@ -1,13 +1,15 @@
 # O-graph visual verification log
 
-Inspection date: 2026-08-13.  Status revised 2026-08-20.
+Inspection date: 2026-08-13.  Status revised 2026-08-20, corrected 2026-08-21.
 
 > **This log is a review record, not an acceptance gate.**  Two things changed
 > on 2026-08-20.  Plot acceptance became property-based rather than a
 > comparison against MATLAB
 > ([`LIVESCRIPT_PORTS.md`](LIVESCRIPT_PORTS.md), criterion 1–2), and the
-> Windows fixture this log waits on was found to be unobtainable
-> ([`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7).
+> Windows fixture this log waits on stopped being a gate
+> ([`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7).  A 2026-08-20 revision
+> called that fixture unobtainable; that was corrected on 2026-08-21 and the
+> gate is retired by decision instead.
 >
 > The manual pass recorded below also missed real defects.  Of the 19
 > `VLExample` instances marked inspected and passing, three contain an edge
@@ -30,7 +32,7 @@ fidelity.  The current generated set contains 46 Julia plot instances: 19
 | `projects/invariant/C250811MSTinvUR.mlx` | 2 | replay v2 plus embedded output | Hopf checked; later Poincare call retained as source-call coverage |
 | `projects/invariant/C250818MSTinv_uqsl2.mlx` | 6 | replay v5 | all six topologies and exact replay weights checked |
 | `projects/invariant/C250823MSTinv_extalg.mlx` | 2 | embedded output | both source calls checked; MATLAB replay stops earlier in algebra verification |
-| `projects/invariant/C251020KnotDsl2bfromUR.mlx` | 2 | replay v2 | **rejected pending redraw**: 2026-08-14 direct side-by-side inspection found both Borromean and Whitehead differ in outer routing, relative vertex placement, and arrow placement. **Rejection withdrawn 2026-08-20**: it was recorded against a MATLAB-comparison criterion that no longer applies, and it waited on a fixture that cannot be produced (see the header). Both figures pass P1/P3/P5/P6. The routing difference from MATLAB is the degenerate minimum-bend MILP choosing another optimum (`PLOT_PIPELINE.md` IS1), which is now accepted. Whitehead was never explained by IS1 in any case: its bending vector equals the one the fork's default backend returns |
+| `projects/invariant/C251020KnotDsl2bfromUR.mlx` | 2 | replay v2 | **rejected pending redraw**: 2026-08-14 direct side-by-side inspection found both Borromean and Whitehead differ in outer routing, relative vertex placement, and arrow placement. **Rejection withdrawn 2026-08-20**: it was recorded against a MATLAB-comparison criterion that no longer applies, and it waited on a fixture that is no longer a gate (see the header). Both figures pass P1/P3/P5/P6. The routing difference from MATLAB is the degenerate minimum-bend MILP choosing another optimum (`PLOT_PIPELINE.md` IS1), which is now accepted. Whitehead was never explained by IS1 in any case: its bending vector equals the one the fork's default backend returns |
 | `projects/invariant/C260125MSTinv_uqsl2.mlx` | 12 | replay v5 | ten call sites including the three-instance `arrayfun` call checked |
 | `projects/spine/example/C260220LensSpaces.mlx` | 1 | replay v2 | topology, edge IDs and weights checked |
 | `topology/URDiagram/dev_URDiagram.mlx` | 1 | MATLAB source implementation | one leftward horizontal quiver checked |
@@ -56,8 +58,10 @@ and PNG files live under `artifacts/julia_plots/`.
 a MATLAB `REdgeTable.Position` polyline verbatim.  It is retained as an
 optional Mac-side comparison tool.  The sentence that previously stood here —
 that a canonical Windows replay must export that field before any plot can be
-promoted — is withdrawn: no such replay is possible
-(`PLOT_PIPELINE.md` section 7), and plot promotion no longer depends on it.
+promoted — is withdrawn, because plot promotion no longer depends on a MATLAB
+comparison.  (A 2026-08-20 revision justified the withdrawal by claiming such a
+replay was impossible; that was corrected on 2026-08-21.  It is producible once
+`SageWrapper` is made stateless — see `PLOT_PIPELINE.md` section 7.)
 
 The portable JSON representation is one N-by-2 `[real, imag]` row array per
 `REdgeTable.Position` cell. The C251020 fixture importer verifies that its arc

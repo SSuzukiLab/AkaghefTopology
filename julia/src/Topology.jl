@@ -19,6 +19,7 @@ export URDiagram, VirtualLink, SymExpr, sym,
        connected_sum!, disjoint_sum!, knot_complement!, vl_to_urdiagram,
        ur_invariant, ur_prime_invariant, EdgeLayout, LinkLayout,
        minimal_bending_numbers, orthogonal_layout, plot_svg, plot_urd_structure_svg, bernstein, bezier,
+       LayoutDiagnostic, check_layout, is_valid_layout, failing_rules, LAYOUT_RULES,
        planarize_virtual_gauss,
        MovePattern, make_move_data, SmallObject
 export SparseFactor, FiniteHopfAlgebra, uqsl2_borel_small, sweedler_algebra,
@@ -35,6 +36,7 @@ include("ur_diagram.jl")
 include("virtual_link.jl")
 include("virtual_planarization.jl")
 include("orthogonal_layout.jl")
+include("layout_invariants.jl")
 include("helpers.jl")
 include("hopf_invariant.jl")
 include("tensor_network.jl")
