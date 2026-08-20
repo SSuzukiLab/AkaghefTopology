@@ -21,6 +21,26 @@ acceptance additionally requires all 17 topology/dependency Live Scripts and all
 The full-resolution manual review of the 46 dynamic Julia plot instances is
 recorded in [`VISUAL_VERIFICATION.md`](VISUAL_VERIFICATION.md).
 
+[`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) is the current state of the plot path:
+what runs between a `VirtualLink` and a drawn o-graph on both the MATLAB/Sage
+and the Julia side, which stages have been measured to agree, and two
+retractions worth reading before trusting an earlier claim. Read it before
+touching `src/orthogonal_layout.jl` or `src/svg_plot.jl`. Three things it
+settles:
+
+- Plots are **no longer accepted by comparison with MATLAB**. The criterion is
+  that the layout is a valid bend-minimal orthogonal embedding, checked by
+  property. Differences caused by the degenerate minimum-bend MILP are
+  accepted.
+- The MATLAB plot path **cannot run on Windows**, so the canonical fixture that
+  several documents waited on is unobtainable, not late.
+- The open plot defect is IS7 in `_route_edges`: the edge closing a cycle can
+  terminate on the wrong crossing, silently. It affects 3 of the 19
+  `VLExample` plot calls.
+
+The parity harness is `scripts/sage/sage_layout_parity.py` together with
+`scripts/sage/julia_layout_parity.jl`.
+
 Canonical ownership and the personal/iPad return path are defined in
 [`CANONICAL_BOUNDARY.md`](CANONICAL_BOUNDARY.md). In particular, Mac replay
 evidence is not Windows Math Harness verification, and personal-surface edits

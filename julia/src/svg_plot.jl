@@ -98,8 +98,16 @@ function _directed_piece(edge::EdgeLayout,orientation)
     (source=source,target=target,points=reverse(edge.points),id=edge.id)
 end
 
-"""Aggregate planar PD edges into MATLAB REdgeTable arcs between real crossings."""
+"""Aggregate planar PD edges into MATLAB REdgeTable arcs between real crossings.
+
+This stage has no counterpart inside Sage: MATLAB does the equivalent work
+itself after Sage returns, in `VirtualLink.calcPos` (`connectPolylines`, the
+per-arc reversal check, component offsets). The two have never been compared.
+See `PLOT_PIPELINE.md` section 8.
+"""
 function _real_arc_layouts(v::VirtualLink,layout::LinkLayout)
+    # `orthogonal_layout` planarised the same input already; recomputing keeps
+    # the two call sites able to drift apart. See `PLOT_PIPELINE.md` IS6.
     code = v.real_only ? first(planarize_virtual_gauss(v.gauss,v.orientation)) : v.gauss
     pieces=Dict{Tuple{Int,Int},Vector{NamedTuple}}()
     for edge in layout.edges
@@ -151,8 +159,18 @@ end
 
 `replay_positions`, when supplied, is one polyline per real arc in the stable
 order returned by `_real_arc_layouts`.  It is the direct representation of
-MATLAB `REdgeTable.Position`; retaining it avoids treating a different optimal
-orthogonal embedding as an equivalent visual result.
+MATLAB `REdgeTable.Position`.  It bypasses the layout solver entirely.
+
+As of 2026-08-20 this is an optional comparison tool, not an acceptance path:
+plots are accepted by property checking rather than by matching MATLAB, and no
+canonical Windows fixture can be produced in any case because the MATLAB plot
+path cannot run there (`PLOT_PIPELINE.md` section 7).
+
+The full stage sequence, and the drawing conventions applied below that have
+not been compared with MATLAB's renderer -- the fixed `0.20` under-strand gap
+in pre-projection units, the `0.3 * scale` corner radius, and the arrow placed
+at the midpoint *index* rather than the arc-length midpoint -- are recorded in
+`PLOT_PIPELINE.md` section 3.
 """
 function plot_svg(v::VirtualLink, path::AbstractString; bending_numbers=nothing,
                   edge_labels=:weight,replay_positions=nothing)

@@ -33,7 +33,13 @@ function _validate_gauss(code::Vector{Vector{Int}}, ori::Vector{Int}; real_only=
     true
 end
 
-"""Set Gauss, real-Gauss, O-data, PD-code, or tabular-knot input."""
+"""Set Gauss, real-Gauss, O-data, PD-code, or tabular-knot input.
+
+A `pd` matrix does not round-trip: it is rebuilt through `_pd_to_gauss` and
+then re-derived by `pd_code`, which may relabel every edge. Per-edge data
+carried alongside a PD matrix -- bending numbers, replay positions -- must be
+indexed to what `pd_code` returns. See `PLOT_PIPELINE.md` IS4.
+"""
 function set_data!(v::VirtualLink; gauss=nothing, rgauss=nothing, orientation=nothing,
                    odata=nothing, pd=nothing, table=nothing, cut=Bool[], strand_types=nothing)
     supplied_weights = odata !== nothing && length(odata) == 3
@@ -225,7 +231,12 @@ function edge_directions(pd::AbstractMatrix{<:Integer})
     tails,heads
 end
 
-"""Return signed, left-turning region boundaries of a PD code."""
+"""Return signed, left-turning region boundaries of a PD code.
+
+Output and ordering match Sage `Link.regions()`, which the minimum-bend MILP
+consumes after a stable sort by length. Verified on the hopf link; see
+`PLOT_PIPELINE.md` section 4.
+"""
 function regions(pd::AbstractMatrix{<:Integer})
     rows = [Int.(collect(row)) for row in eachrow(pd)]
     isempty(rows) && return Vector{Vector{Int}}()

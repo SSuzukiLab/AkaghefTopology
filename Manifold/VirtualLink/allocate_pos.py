@@ -100,9 +100,17 @@ def allocate_positions(self,bendingNumbers):
         MLP.add_constraint(flow == capacity)  # exterior region only sink
     
     MLP.set_objective(MLP.sum(v.values()))
+    # This model is degenerate: distinct optima tie on the objective, so the
+    # backend picks the drawn embedding. Upstream Sage takes a `solver=`
+    # argument on plot() and threads it into both MILPs; this fork dropped it,
+    # so the Sage default decides and the geometry is not machine-independent.
+    # See julia/PLOT_PIPELINE.md IS1 and IS3.
     MLP.solve()
     # we store the result in a vector s packing right bends as negative left ones
     # values = MLP.get_values(v, convert=ZZ, tolerance=1e-3)
+    # Upstream Sage uses the commented form above; this fork dropped the
+    # conversion. Without it GLPK returns floats and the range() below raises
+    # TypeError, binding this path to an integer-returning backend. See IS2.
     values = MLP.get_values(v)
     s = None
     # if bendingNumbers is empty list, we use the MLP solution
@@ -198,6 +206,12 @@ def allocate_positions(self,bendingNumbers):
         verp = []
         verm = []
         direction = 0
+        # Inherited from upstream Sage: the modulo is applied to the first
+        # branch only, so a segment reached with direction in 5..7 falls
+        # through and is dropped from all four sums. The Julia port normalises
+        # every branch instead, which is a real behavioural divergence.
+        # Measured to peak at 4 on hopf/trefoil/borromean/whitehead, so it does
+        # not currently fire. See julia/PLOT_PIPELINE.md IS5.
         for se in r:
             if direction % 4 == 0:
                 horp.append(v[se[0]])

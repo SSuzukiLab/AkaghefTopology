@@ -71,3 +71,38 @@ No artifact in this directory currently carries `windows-verified` status.
 This ADR introduces no contradiction that requires stopping the Mac migration;
 it adds a hard promotion boundary after Mac-side acceptance and before any
 Windows canonical claim or ledger update.
+
+## Finding logged 2026-08-20: the visual clause is not executable on Windows
+
+This section records a fact found after the ADR was written.  **It does not
+amend the boundary.**  Changing the promotion conditions is the A-sys / ADR
+owner's decision, not this repository's.  What follows is input to that
+decision.
+
+Windows-side logs supplied on 2026-08-20
+(`sage-windows-matlab-logs-20260820.zip`; ChatGPT session
+`260221_Git_submodule_commit_error`, Codex thread
+`019d43a5-275b-7ed0-aff5-4050d18aba55`) establish that Windows MATLAB cannot
+reach a WSL Sage through `pyenv`: `pyenv` embeds a Windows-native CPython into
+the MATLAB process, while WSL's Sage is a Linux ELF build.  `SW/SageWrapper.m`
+depends on that embedding and on a persistent `sage.all.__dict__` namespace, so
+it has no Windows form.  An external-process fallback through `wsl.exe` was
+attempted and did not land.  Details in
+[`PLOT_PIPELINE.md`](PLOT_PIPELINE.md) section 7.
+
+Consequences for the conditions stated above:
+
+1. The requirement that Windows rerun and compare structural, numerical **and
+   visual** evidence cannot be met for the visual part by the MATLAB path.
+   Every `VirtualLink` workflow reaches Sage, so this covers the whole plot
+   corpus.
+2. The manifest item "for each plotted `VirtualLink`, source
+   `REdgeTable.Position` polylines and crossing positions" cannot be produced
+   on Windows.  Mac-side export remains possible.
+3. The Julia path has no Python, Sage or system dependency and is expected to
+   run natively on Windows, which would make it the only way to satisfy a
+   plot-evidence clause there.  **This has not been verified on Windows.**
+
+Nothing here relaxes the boundary.  Until the ADR owner rules, plot evidence
+produced anywhere remains `mac-replayed` at best, and no promotion follows from
+this repository's Mac-side work.

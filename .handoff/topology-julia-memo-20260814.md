@@ -1,5 +1,33 @@
 # Julia topology port — 作業メモ（2026-08-14）
 
+> ## 2026-08-20 追記：以下の記述は失効した
+>
+> 本文はそのまま残す（経緯の監査のため）。ただし次の点は現在の事実と異なる。
+>
+> - **`julia/` は追跡済み。** commit `00f43c0`（8/14 06:57）で 591 ファイルが
+>   追加され、`e941b76` で origin/master とマージ済み。ワークツリーはクリーン。
+> - **ランタイムは復旧済み。** 8/20 に julia 1.6.3 と node v26.0.0 を確認。
+>   `Pkg.test()` は 16 pass / 1 error（`run_URDforKnotCmpl_d2_exploratory_cell`
+>   の `simplify2!` 後に move 列が適用できない。これは未解決）。
+> - **再開順 4 は実行不能。** Windows MATLAB は `pyenv` で WSL の Sage に到達
+>   できない（Windows ネイティブ CPython を埋め込む仕組みで、WSL の Sage は
+>   Linux ELF）。canonical な `REdgeTable.Position` fixture は現行設計では
+>   生成できないので、`render_c251020_replay_fixtures` を待つ手順は無効。
+>   詳細は `julia/PLOT_PIPELINE.md` 第7節。
+> - **再開順 5 の受入基準は変更された。** 図の受入は MATLAB との一致ではなく
+>   性質検査（P1/P3/P5/P6）に置き換えた。最小曲げ MILP の退化に起因する
+>   不一致は許容する。`julia/LIVESCRIPT_PORTS.md` の冒頭を参照。
+> - **C251020 の「不合格」は撤回。** Borromean・Whitehead とも P1/P3/P5/P6 を
+>   通る。MATLAB との経路差は退化した最適解の選択によるもので、現基準では
+>   問題にしない。
+> - **代わりに開いている課題**は IS7：`_route_edges` が閉路を閉じる辺を
+>   誤った交差点で終端させる。`VLExample` の19本中3本
+>   （`koda_virtual`、`s2xs1_calculation`、`koda_fig13`）で発生。
+>   `s2xs1_calculation` は `examples/VLExample.jl` の bending 上書きを
+>   削除すれば消える。
+>
+> 現在の作業状態は `julia/PLOT_PIPELINE.md` を正とする。
+
 ## 現状
 
 - 対象は Execution 配下の `.mlx` 全60本。17本の topology/algebra 系だけを

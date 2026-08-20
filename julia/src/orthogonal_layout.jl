@@ -15,7 +15,18 @@ struct LinkLayout
     orientation::Vector{Int}
 end
 
-"""Solve the same minimum-bend region-flow model used by Sage's Link.plot."""
+"""Solve the same minimum-bend region-flow model used by Sage's Link.plot.
+
+This model is degenerate: several distinct bending vectors attain the same
+optimal objective, so the MILP backend decides which embedding is drawn.
+Matching the backend family does not remove it -- Sage/GLPK and this port
+disagree on the Borromean rings.
+
+As of 2026-08-20 that difference is **accepted**: plots are no longer accepted
+by comparison with MATLAB, so any optimum is a valid answer. Tests must compare
+the objective value and never the bending vector. See `PLOT_PIPELINE.md` IS1
+and section 4 part A.
+"""
 function minimal_bending_numbers(pd::AbstractMatrix{<:Integer})
     isempty(pd) && return Int[]
     edge_ids = sort(unique(vec(Int.(pd))))
@@ -127,6 +138,10 @@ function _piece_lengths(pd::Matrix{Int},bending::Vector{Int})
         negative_vertical = VariableRef[]
         direction = 0
         for (segment,turn) in region
+            # Sage applies the modulo only to the first branch and compares the
+            # rest bare, so a segment reached with direction in 5..7 is dropped
+            # from every bucket. This normalisation is a deliberate divergence,
+            # latent on all diagrams measured so far. See `PLOT_PIPELINE.md` IS5.
             bucket = direction % 4 == 0 ? positive_horizontal :
                      direction % 4 == 1 ? positive_vertical :
                      direction % 4 == 2 ? negative_horizontal : negative_vertical
@@ -191,6 +206,13 @@ function _route_edges(pd::Matrix{Int},orientation::Vector{Int},bending::Vector{I
         end
         last_direction = mod(direction-turn,4)
         target = findfirst(i -> i != crossing_index && edge in pd[i,:],axes(pd,1))
+        # A crossing gets its position on first discovery only. For an edge
+        # returning to an already-positioned crossing -- the edges that close
+        # cycles -- nothing checks that `last(points)` equals that position.
+        # It is assumed to close, and when it does not the failure is silent.
+        # This is IS7: measured on 3 of the 19 VLExample plot calls, always
+        # exactly one edge, always the head. See `PLOT_PIPELINE.md` IS7 and
+        # PR1/PR3; `koda_fig13` is the smallest reproducer.
         if target === nothing
             target = crossing_index
         elseif target in available_crossings
@@ -208,7 +230,19 @@ function _route_edges(pd::Matrix{Int},orientation::Vector{Int},bending::Vector{I
     crossing_positions,layouts
 end
 
-"""Compute a Julia-native orthogonal layout for a real Gauss diagram."""
+"""Compute a Julia-native orthogonal layout for a real Gauss diagram.
+
+Given the same `bending_numbers`, the stages below reproduce the corner
+sequence of `allocate_pos.py` exactly on the hopf link and on both C251020
+figures. That agreement does **not** extend to diagrams containing self-loops:
+on `s2xs1_calculation` three of twelve edges differ, and on one of them this
+implementation is the wrong one (IS7).
+
+`bending_numbers` index the labelling returned by `pd_code`, not any PD matrix
+passed to `set_data!` (IS4). Pinning them is a debugging aid, not a fix: the
+hand-tuned overrides in `examples/` were chosen against the MATLAB path and
+trigger IS7 here. See `PLOT_PIPELINE.md` section 4 part B.
+"""
 function orthogonal_layout(v::VirtualLink;bending_numbers=nothing)
     source=v
     if v.real_only
