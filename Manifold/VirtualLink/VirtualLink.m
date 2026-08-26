@@ -2621,7 +2621,14 @@ classdef VirtualLink<handle&matlab.mixin.Copyable
         end
     end
     methods(Static)
-        
+
+        function [gc,ori]=debugVG2G(rgc,ro)
+            % debugVG2G is the Sage-independent verification entry for vg2g.
+            % It intentionally bypasses calcVG2G/setSageLink so that ports can
+            % compare only the virtual-crossing insertion stage.
+            [gc,ori]=vg2g(rgc,ro);
+        end
+
         function hm=gc2hm(gc)
             NV=length(unique(abs(setdiff(horzcat(gc{:}),0))));
             hm=nan(NV,2);
